@@ -1,0 +1,146 @@
+// src/components/direct_play_modal.rs
+
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+    Frame,
+};
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::action::Action;
+use crate::api::models::DiscoveryItem;
+use crate::components::Component;
+
+pub struct DirectPlayModal {
+    action_tx: Option<UnboundedSender<Action>>,
+    visible: bool,
+    input: String,
+    error: Option<String>,
+}
+
+impl DirectPlayModal {
+    pub fn new() -> Self {
+        Self {
+            action_tx: None,
+            visible: false,
+            input: String::new(),
+            error: None,
+        }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub fn show(&mut self) {
+        self.visible = true;
+        self.input.clear();
+        self.error = None;
+    }
+
+    pub fn hide(&mut self) {
+        self.visible = false;
+        self.input.clear();
+        self.error = None;
+    }
+
+    fn submit(&mut self) {
+        let url = self.input.trim().to_string();
+        if url.is_empty() {
+            self.visible = false;
+            self.input.clear();
+            return;
+        }
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            self.error = Some("URL must start with http:// or https://".to_string());
+            return;
+        }
+        if let Some(tx) = &self.action_tx {
+            let item = DiscoveryItem::DirectUrl { url, title: None };
+            tx.send(Action::PlayItem(item)).ok();
+        }
+        self.visible = false;
+        self.input.clear();
+        self.error = None;
+    }
+}
+
+impl Component for DirectPlayModal {
+    fn register_action_handler(&mut self, tx: UnboundedSender<Action>) {
+        self.action_tx = Some(tx);
+    }
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+        if !self.visible {
+            return Ok(false);
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                if let Some(tx) = &self.action_tx {
+                    tx.send(Action::CloseDirectPlay).ok();
+                }
+            }
+            KeyCode::Enter => {
+                self.submit();
+            }
+            KeyCode::Char(c) => {
+                self.input.push(c);
+                self.error = None;
+            }
+            KeyCode::Backspace => {
+                self.input.pop();
+                self.error = None;
+            }
+            _ => {}
+        }
+
+        Ok(true)
+    }
+
+    fn draw(&self, frame: &mut Frame, area: Rect) {
+        if !self.visible {
+            return;
+        }
+
+        let overlay_width = 60u16.min(area.width.saturating_sub(4));
+        let overlay_height = 6u16;
+        let x = area.width.saturating_sub(overlay_width) / 2;
+        let y = area.height.saturating_sub(overlay_height) / 2;
+        let overlay_area = Rect::new(x, y, overlay_width, overlay_height.min(area.height));
+
+        frame.render_widget(Clear, overlay_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Open URL ")
+            .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+        let inner = block.inner(overlay_area);
+        frame.render_widget(block, overlay_area);
+
+        let prompt = Line::from(vec![
+            Span::styled("URL: ", Style::default().fg(Color::Yellow)),
+            Span::raw(&self.input),
+            Span::styled("█", Style::default().fg(Color::White)),
+        ]);
+        let hint = Line::from(Span::styled(
+            "  Enter to play · Esc to cancel",
+            Style::default().fg(Color::DarkGray),
+        ));
+        let error_line = if let Some(ref err) = self.error {
+            Line::from(Span::styled(
+                format!("  {}", err),
+                Style::default().fg(Color::Red),
+            ))
+        } else {
+            Line::from("")
+        };
+
+        let paragraph = Paragraph::new(vec![prompt, hint, error_line]);
+        frame.render_widget(paragraph, inner);
+    }
+}
