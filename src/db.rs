@@ -1,4 +1,5 @@
-// src/db.rs
+// SQLite persistence for favorites and listening history.
+// Data lives in ~/.local/share/clisten/clisten.db.
 
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
@@ -213,7 +214,6 @@ impl FavoriteRecord {
                 genres: vec![],
                 location: None,
                 audio_url: self.url.clone(),
-                description: None,
             },
             ("nts", "mixtape") => DiscoveryItem::NtsMixtape {
                 title: self.title.clone(),
@@ -224,10 +224,7 @@ impl FavoriteRecord {
             ("nts", "live") => DiscoveryItem::NtsLiveChannel {
                 channel: 1,
                 show_name: self.title.clone(),
-                broadcast_title: self.title.clone(),
                 genres: vec![],
-                start: String::new(),
-                end: String::new(),
             },
             ("direct", "url") => DiscoveryItem::DirectUrl {
                 url: self.url.clone().unwrap_or_default(),
@@ -240,7 +237,6 @@ impl FavoriteRecord {
                 genres: vec![],
                 location: None,
                 audio_url: self.url.clone(),
-                description: None,
             },
         }
     }
@@ -262,7 +258,6 @@ impl HistoryRecord {
                 genres: vec![],
                 location: None,
                 audio_url: self.url.clone(),
-                description: None,
             },
         }
     }

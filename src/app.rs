@@ -1,14 +1,10 @@
-// src/app.rs
-
 use std::collections::HashSet;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders};
 use tokio::sync::mpsc;
 
 use crate::action::Action;
-use crate::api::nts::NtsClient;
+use crate::api::models::DiscoveryItem;
+use crate::api::nts::{NtsClient, TOP_GENRES};
 use crate::components::Component;
 use crate::components::discovery_list::DiscoveryList;
 use crate::components::search_bar::SearchBar;
@@ -21,6 +17,7 @@ use crate::db::Database;
 use crate::player::MpvPlayer;
 use crate::player::queue::{Queue, QueueItem};
 use crate::tui::{Tui, TuiEvent};
+use crate::ui;
 
 pub struct App {
     running: bool,
@@ -45,7 +42,7 @@ pub struct App {
     pub show_help: bool,
     pub error_message: Option<String>,
     pub search_id: u64,
-    /// true when viewing genre search results (not the genre list)
+    /// True when viewing genre search results (not the genre list itself).
     pub viewing_genre_results: bool,
 }
 
@@ -66,15 +63,17 @@ impl App {
         let mut play_controls = PlayControls::new();
         let mut direct_play_modal = DirectPlayModal::new();
 
-        // Register action handlers
-        nts_tab.register_action_handler(action_tx.clone());
-        discovery_list.register_action_handler(action_tx.clone());
-        search_bar.register_action_handler(action_tx.clone());
-        now_playing.register_action_handler(action_tx.clone());
-        play_controls.register_action_handler(action_tx.clone());
-        direct_play_modal.register_action_handler(action_tx.clone());
+        for component in [
+            &mut nts_tab as &mut dyn Component,
+            &mut discovery_list,
+            &mut search_bar,
+            &mut now_playing,
+            &mut play_controls,
+            &mut direct_play_modal,
+        ] {
+            component.register_action_handler(action_tx.clone());
+        }
 
-        // Sync initial favorites to DiscoveryList for ♥ rendering
         discovery_list.set_favorites(favorites.clone());
 
         let mut player = MpvPlayer::new();
@@ -107,193 +106,21 @@ impl App {
         let mut tui = Tui::new(self.config.general.frame_rate)?;
         tui.enter()?;
 
-        // Load initial data
         self.action_tx.send(Action::LoadNtsLive)?;
 
         while self.running {
-            // Draw
-            let discovery_list = &self.discovery_list;
-            let nts_tab = &self.nts_tab;
-            let search_bar = &self.search_bar;
-            let now_playing = &self.now_playing;
-            let play_controls = &self.play_controls;
-            let direct_play_modal = &self.direct_play_modal;
+            let state = ui::DrawState {
+                nts_tab: &self.nts_tab,
+                discovery_list: &self.discovery_list,
+                search_bar: &self.search_bar,
+                now_playing: &self.now_playing,
+                play_controls: &self.play_controls,
+                direct_play_modal: &self.direct_play_modal,
+                error_message: &self.error_message,
+                show_help: self.show_help,
+            };
+            tui.draw(|frame| ui::draw(frame, &state))?;
 
-            let error_msg = self.error_message.clone();
-            let show_help = self.show_help;
-            tui.draw(|frame| {
-                let error_height = if error_msg.is_some() { 1 } else { 0 };
-                let outer = Layout::vertical([
-                    Constraint::Min(0),
-                    Constraint::Length(error_height),
-                    Constraint::Length(4),
-                ]).split(frame.area());
-
-                // Draw outer frame around main content area
-                let outer_block = Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray));
-                let content_area = outer_block.inner(outer[0]);
-                frame.render_widget(outer_block, outer[0]);
-
-                let main = Layout::horizontal([
-                    Constraint::Percentage(60),
-                    Constraint::Percentage(40),
-                ]).split(content_area);
-
-                let left = Layout::vertical([
-                    Constraint::Length(2),
-                    Constraint::Min(0),
-                    Constraint::Length(2),
-                ]).split(main[0]);
-
-                // Sub-tab bar
-                nts_tab.draw(frame, left[0]);
-                discovery_list.draw(frame, left[1]);
-                // Search bar: first row is separator, second row is input
-                let search_input_area = Rect {
-                    x: left[2].x,
-                    y: left[2].y + 1,
-                    width: left[2].width,
-                    height: 1,
-                };
-                search_bar.draw(frame, search_input_area);
-                now_playing.draw(frame, main[1]);
-
-                // Draw manual separators with proper box-drawing corners
-                let buf = frame.buffer_mut();
-
-                // Vertical divider between left and right panels
-                let divider_x = main[0].x + main[0].width;
-                if divider_x < content_area.x + content_area.width {
-                    let top_y = content_area.y;
-                    let bottom_y = content_area.y + content_area.height;
-                    // Top corner: ┬ (connects to outer frame top border)
-                    if let Some(cell) = buf.cell_mut((divider_x, top_y.saturating_sub(1))) {
-                        cell.set_char('┬');
-                        cell.set_fg(Color::DarkGray);
-                    }
-                    // Vertical line
-                    for y in top_y..bottom_y {
-                        if let Some(cell) = buf.cell_mut((divider_x, y)) {
-                            cell.set_char('│');
-                            cell.set_fg(Color::DarkGray);
-                        }
-                    }
-                    // Bottom corner: ┴ (connects to outer frame bottom border)
-                    if let Some(cell) = buf.cell_mut((divider_x, bottom_y)) {
-                        cell.set_char('┴');
-                        cell.set_fg(Color::DarkGray);
-                    }
-                }
-
-                // Horizontal divider above search bar
-                let sep_y = left[2].y;
-                {
-                    // Left corner: ├
-                    let left_x = content_area.x.saturating_sub(1);
-                    if let Some(cell) = buf.cell_mut((left_x, sep_y)) {
-                        cell.set_char('├');
-                        cell.set_fg(Color::DarkGray);
-                    }
-                    // Horizontal line
-                    for x in content_area.x..main[0].x + main[0].width {
-                        if let Some(cell) = buf.cell_mut((x, sep_y)) {
-                            cell.set_char('─');
-                            cell.set_fg(Color::DarkGray);
-                        }
-                    }
-                    // Right corner: ┤ at vertical divider
-                    if divider_x < content_area.x + content_area.width {
-                        if let Some(cell) = buf.cell_mut((divider_x, sep_y)) {
-                            cell.set_char('┤');
-                            cell.set_fg(Color::DarkGray);
-                        }
-                    }
-                }
-
-                // Error line above play controls
-                if let Some(ref msg) = error_msg {
-                    use ratatui::widgets::Paragraph;
-                    use ratatui::text::{Line, Span};
-                    let error_line = Line::from(vec![
-                        Span::styled(" ⚠ ", Style::default().fg(Color::Red)),
-                        Span::styled(msg.as_str(), Style::default().fg(Color::Yellow)),
-                        Span::styled("  Press r to retry.", Style::default().fg(Color::DarkGray)),
-                    ]);
-                    frame.render_widget(Paragraph::new(error_line), outer[1]);
-                }
-
-                play_controls.draw(frame, outer[2]);
-
-                // Direct play modal overlay
-                if direct_play_modal.is_visible() {
-                    direct_play_modal.draw(frame, frame.area());
-                }
-
-                // Help overlay
-                if show_help {
-                    use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-                    use ratatui::style::{Color, Style, Modifier};
-                    use ratatui::text::{Line, Span};
-                    use ratatui::layout::Alignment;
-
-                    let area = frame.area();
-                    let overlay_width = 58u16;
-                    let overlay_height = 24u16;
-                    let x = area.width.saturating_sub(overlay_width) / 2;
-                    let y = area.height.saturating_sub(overlay_height) / 2;
-                    let overlay_area = ratatui::layout::Rect::new(x, y, overlay_width.min(area.width), overlay_height.min(area.height));
-
-                    frame.render_widget(Clear, overlay_area);
-
-                    let keybindings = vec![
-                        ("q",         "Quit"),
-                        ("1–3",       "Switch sub-tab"),
-                        ("Tab",       "Next sub-tab"),
-                        ("Shift+Tab", "Previous sub-tab"),
-                        ("j / Down",  "Scroll down"),
-                        ("k / Up",    "Scroll up"),
-                        ("Enter",     "Play / select genre"),
-                        ("a",         "Add to queue"),
-                        ("A",         "Add to queue next (after current)"),
-                        ("Space",     "Toggle play/pause"),
-                        ("n",         "Next track in queue"),
-                        ("p",         "Previous track in queue"),
-                        ("s",         "Stop playback"),
-                        ("o",         "Open URL (direct play)"),
-                        ("/",         "Focus search bar"),
-                        ("Escape",    "Unfocus search / go back"),
-                        ("f",         "Toggle favorite"),
-                        ("c",         "Clear queue"),
-                        ("[ ]",       "Volume down/up"),
-                        ("?",         "Toggle this help overlay"),
-                        ("r",         "Retry failed request"),
-                    ];
-
-                    let mut lines: Vec<Line> = vec![
-                        Line::from(Span::styled(" Keybindings ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                        Line::from(""),
-                    ];
-                    for (key, desc) in &keybindings {
-                        lines.push(Line::from(vec![
-                            Span::styled(format!("  {:12}", key), Style::default().fg(Color::Yellow)),
-                            Span::raw(*desc),
-                        ]));
-                    }
-                    lines.push(Line::from(""));
-                    lines.push(Line::from(Span::styled("  Press any key to close", Style::default().fg(Color::DarkGray))));
-
-                    let block = Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Help ")
-                        .title_alignment(Alignment::Center);
-                    let paragraph = Paragraph::new(lines).block(block);
-                    frame.render_widget(paragraph, overlay_area);
-                }
-            })?;
-
-            // Process events
             tokio::select! {
                 Some(event) = tui.event_rx.recv() => {
                     match event {
@@ -317,82 +144,76 @@ impl App {
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<()> {
         use KeyCode::*;
 
-        // Any key dismisses help overlay
         if self.show_help {
             self.action_tx.send(Action::HideHelp)?;
             return Ok(());
         }
 
-        // Direct play modal intercepts all keys when visible
         if self.direct_play_modal.is_visible() {
             self.direct_play_modal.handle_key_event(key)?;
             return Ok(());
         }
 
+        let in_search = self.search_bar.is_focused();
+
         match (key.code, key.modifiers) {
-            (Char('q'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('q'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::Quit)?;
             }
-            (Char('?'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
-                self.action_tx.send(if self.show_help {
-                    Action::HideHelp
-                } else {
-                    Action::ShowHelp
-                })?;
+            (Char('?'), KeyModifiers::NONE) if !in_search => {
+                self.action_tx.send(if self.show_help { Action::HideHelp } else { Action::ShowHelp })?;
             }
-            (Char('o'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('o'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::OpenDirectPlay)?;
             }
             (Tab, _) => {
-                let next = (self.nts_tab.active_index() + 1) % 3;
-                self.action_tx.send(Action::SwitchSubTab(next))?;
+                self.action_tx.send(Action::SwitchSubTab((self.nts_tab.active_index() + 1) % 3))?;
             }
             (BackTab, _) => {
-                let prev = (self.nts_tab.active_index() + 2) % 3;
-                self.action_tx.send(Action::SwitchSubTab(prev))?;
+                self.action_tx.send(Action::SwitchSubTab((self.nts_tab.active_index() + 2) % 3))?;
             }
-            (Char(' '), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char(' '), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::TogglePlayPause)?;
             }
-            (Char('n'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('n'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::NextTrack)?;
             }
-            (Char('p'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('p'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::PrevTrack)?;
             }
-            (Char('s'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('s'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::Stop)?;
             }
-            (Char('/'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('/'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::FocusSearch)?;
             }
-            (Char('f'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('f'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::ToggleFavorite)?;
             }
-            (Char('c'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('c'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::ClearQueue)?;
             }
-            (Char('a'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('a'), KeyModifiers::NONE) if !in_search => {
                 if let Some(item) = self.discovery_list.selected_item() {
                     self.action_tx.send(Action::AddToQueue(item.clone()))?;
                 }
             }
-            (Char('A'), _) if !self.search_bar.is_focused() => {
+            (Char('A'), _) if !in_search => {
                 if let Some(item) = self.discovery_list.selected_item() {
                     self.action_tx.send(Action::AddToQueueNext(item.clone()))?;
                 }
             }
-            (Char(']'), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char(']'), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::VolumeUp)?;
             }
-            (Char('['), KeyModifiers::NONE) if !self.search_bar.is_focused() => {
+            (Char('['), KeyModifiers::NONE) if !in_search => {
                 self.action_tx.send(Action::VolumeDown)?;
             }
-            (Char('r'), KeyModifiers::NONE) if !self.search_bar.is_focused() && self.error_message.is_some() => {
+            (Char('r'), KeyModifiers::NONE) if !in_search && self.error_message.is_some() => {
                 self.action_tx.send(Action::LoadNtsLive)?;
                 self.error_message = None;
             }
-            (Char(c), KeyModifiers::NONE) if !self.search_bar.is_focused() && c.is_ascii_digit() => {
+            (Char(c), KeyModifiers::NONE) if !in_search && c.is_ascii_digit() => {
                 let idx = c.to_digit(10).unwrap_or(0) as usize;
                 if idx >= 1 && idx <= 3 {
                     self.action_tx.send(Action::SwitchSubTab(idx - 1))?;
@@ -400,7 +221,7 @@ impl App {
             }
             (Esc, _) => self.action_tx.send(Action::Back)?,
             _ => {
-                if self.search_bar.is_focused() {
+                if in_search {
                     self.search_bar.handle_key_event(key)?;
                 } else {
                     self.discovery_list.handle_key_event(key)?;
@@ -412,303 +233,74 @@ impl App {
 
     pub async fn handle_action(&mut self, action: Action) -> anyhow::Result<()> {
         match action {
+            // Lifecycle
             Action::Quit => {
                 let _ = self.player.stop().await;
                 self.running = false;
             }
-            Action::PlayItem(ref item) => {
-                if let Some(url) = item.playback_url() {
-                    let nothing_playing = self.now_playing.current_item.is_none();
-                    let new_index = self.queue.len();
-                    self.queue.add(QueueItem { item: item.clone(), url: url.clone(), stream_title: None });
-                    self.play_controls.queue_pos = self.queue.current_index();
-                    self.play_controls.queue_len = self.queue.len();
-                    self.sync_queue_to_now_playing();
 
-                    if nothing_playing {
-                        self.queue.play_at(new_index);
-                        self.play_controls.queue_pos = self.queue.current_index();
-                        self.now_playing.update(&action)?;
-                        self.player.play(&url).await?;
-                        self.action_tx.send(Action::PlaybackStarted {
-                            title: item.display_title(),
-                            url,
-                        })?;
-                        self.action_tx.send(Action::AddToHistory(item.clone()))?;
-                        self.sync_queue_to_now_playing();
-                    }
-                }
-            }
-            Action::TogglePlayPause => {
-                let _ = self.player.toggle_pause().await;
-            }
-            Action::Stop => {
-                let _ = self.player.stop().await;
-            }
-            Action::ToggleFavorite => {
-                if let Some(item) = self.discovery_list.selected_item().cloned() {
-                    let key = item.favorite_key();
-                    if self.favorites.contains(&key) {
-                        self.db.remove_favorite(&key)?;
-                        self.favorites.remove(&key);
-                    } else {
-                        self.db.add_favorite(&item)?;
-                        self.favorites.insert(key);
-                    }
-                    self.discovery_list.set_favorites(self.favorites.clone());
-                }
-            }
-            Action::AddToHistory(ref item) => {
-                let _ = self.db.add_to_history(item);
-            }
-            Action::AddToQueue(ref item) => {
-                let url = item.playback_url().unwrap_or_default();
-                self.queue.add(QueueItem { item: item.clone(), url, stream_title: None });
-                self.play_controls.queue_pos = self.queue.current_index();
-                self.play_controls.queue_len = self.queue.len();
-                self.sync_queue_to_now_playing();
-            }
-            Action::AddToQueueNext(ref item) => {
-                let url = item.playback_url().unwrap_or_default();
-                self.queue.add_next(QueueItem { item: item.clone(), url, stream_title: None });
-                self.play_controls.queue_pos = self.queue.current_index();
-                self.play_controls.queue_len = self.queue.len();
-                self.sync_queue_to_now_playing();
-            }
+            // Playback
+            Action::PlayItem(ref item) => self.play_item(item.clone()).await?,
+            Action::TogglePlayPause => { let _ = self.player.toggle_pause().await; }
+            Action::Stop => { let _ = self.player.stop().await; }
+            Action::NextTrack => { self.play_queue_track(Queue::next).await?; }
+            Action::PrevTrack => { self.play_queue_track(Queue::prev).await?; }
+
+            // Queue
+            Action::AddToQueue(ref item) => self.enqueue(item.clone(), false),
+            Action::AddToQueueNext(ref item) => self.enqueue(item.clone(), true),
             Action::ClearQueue => {
                 self.queue.clear();
                 self.play_controls.queue_pos = None;
                 self.play_controls.queue_len = 0;
                 self.sync_queue_to_now_playing();
             }
-            Action::NextTrack => {
-                if let Some(next) = self.queue.next() {
-                    let url = next.url.clone();
-                    let title = next.item.display_title();
-                    let item = next.item.clone();
-                    self.play_controls.queue_pos = self.queue.current_index();
-                    self.now_playing.buffering = true;
-                    self.now_playing.stream_metadata = None;
-                    self.now_playing.current_item = Some(item);
-                    self.play_controls.buffering = true;
-                    self.sync_queue_to_now_playing();
-                    if let Err(e) = self.player.play(&url).await {
-                        self.action_tx.send(Action::ShowError(e.to_string()))?;
-                    } else {
-                        self.action_tx.send(Action::PlaybackStarted { title, url })?;
-                    }
-                }
-            }
-            Action::PrevTrack => {
-                if let Some(prev) = self.queue.prev() {
-                    let url = prev.url.clone();
-                    let title = prev.item.display_title();
-                    let item = prev.item.clone();
-                    self.play_controls.queue_pos = self.queue.current_index();
-                    self.now_playing.buffering = true;
-                    self.now_playing.stream_metadata = None;
-                    self.now_playing.current_item = Some(item);
-                    self.play_controls.buffering = true;
-                    self.sync_queue_to_now_playing();
-                    if let Err(e) = self.player.play(&url).await {
-                        self.action_tx.send(Action::ShowError(e.to_string()))?;
-                    } else {
-                        self.action_tx.send(Action::PlaybackStarted { title, url })?;
-                    }
-                }
-            }
-            Action::LoadNtsLive => {
-                let tx = self.action_tx.clone();
-                let client = self.nts_client.clone();
-                tokio::spawn(async move {
-                    match client.fetch_live().await {
-                        Ok(items) => { tx.send(Action::NtsLiveLoaded(items)).ok(); }
-                        Err(e) => { tx.send(Action::ShowError(e.to_string())).ok(); }
-                    }
-                });
-            }
-            Action::NtsLiveLoaded(items) => {
-                self.discovery_list.set_items(items);
-            }
-            Action::LoadNtsPicks => {
-                let tx = self.action_tx.clone();
-                let client = self.nts_client.clone();
-                tokio::spawn(async move {
-                    match client.fetch_picks().await {
-                        Ok(items) => { tx.send(Action::NtsPicksLoaded(items)).ok(); }
-                        Err(e) => { tx.send(Action::ShowError(e.to_string())).ok(); }
-                    }
-                });
-            }
-            Action::NtsPicksLoaded(items) => {
-                self.discovery_list.set_items(items);
-            }
-            Action::LoadGenres => {
-                use crate::api::models::DiscoveryItem;
-                use crate::api::nts::TOP_GENRES;
-                let db_favorites = self.db.list_favorites(None, 1000, 0)?;
-                let db_history = self.db.list_history(1000, 0)?;
-                let fav_count = db_favorites.len();
-                let hist_count = db_history.len();
-                let mut items: Vec<DiscoveryItem> = Vec::new();
-                // Prepend special items
-                items.push(DiscoveryItem::NtsGenre {
-                    name: format!("My Favorites ({})", fav_count),
-                    genre_id: "_favorites".to_string(),
-                });
-                items.push(DiscoveryItem::NtsGenre {
-                    name: format!("History ({})", hist_count),
-                    genre_id: "_history".to_string(),
-                });
-                // Static genre list (500+ episodes each)
-                for &(id, name) in TOP_GENRES {
-                    items.push(DiscoveryItem::NtsGenre {
-                        name: name.to_string(),
-                        genre_id: id.to_string(),
-                    });
-                }
-                self.action_tx.send(Action::GenresLoaded(items))?;
-                self.viewing_genre_results = false;
-            }
+
+            // Favorites & history
+            Action::ToggleFavorite => self.toggle_favorite()?,
+            Action::AddToHistory(ref item) => { let _ = self.db.add_to_history(item); }
+
+            // Data loading
+            Action::LoadNtsLive => self.spawn_fetch_live(),
+            Action::NtsLiveLoaded(items) => self.discovery_list.set_items(items),
+            Action::LoadNtsPicks => self.spawn_fetch_picks(),
+            Action::NtsPicksLoaded(items) => self.discovery_list.set_items(items),
+            Action::LoadGenres => self.load_genres()?,
             Action::GenresLoaded(items) => {
                 self.discovery_list.set_items(items);
                 self.viewing_genre_results = false;
             }
-            Action::SearchByGenre { genre_id, genre_name: _ } => {
-                self.search_id += 1;
-                let current_search_id = self.search_id;
-                self.discovery_list.set_items(vec![]);
-                self.discovery_list.loading = true;
-                self.viewing_genre_results = true;
 
-                if genre_id == "_favorites" {
-                    // Load favorites from DB
-                    let records = self.db.list_favorites(None, 1000, 0)?;
-                    let items: Vec<_> = records.iter().map(|r| r.to_discovery_item()).collect();
-                    self.action_tx.send(Action::SearchResultsPartial {
-                        search_id: current_search_id,
-                        items,
-                        done: true,
-                    })?;
-                } else if genre_id == "_history" {
-                    // Load history from DB
-                    let records = self.db.list_history(1000, 0)?;
-                    let items: Vec<_> = records.iter().map(|r| r.to_discovery_item()).collect();
-                    self.action_tx.send(Action::SearchResultsPartial {
-                        search_id: current_search_id,
-                        items,
-                        done: true,
-                    })?;
-                } else {
-                    // Server-side genre search via /api/v2/search/episodes
-                    let tx = self.action_tx.clone();
-                    let client = self.nts_client.clone();
-                    let gid = genre_id.clone();
-                    tokio::spawn(async move {
-                        let page_size = 12u64;
-                        let max_offset = 240u64; // API caps at offset 240
-                        let mut all_items = Vec::new();
-
-                        let mut offset = 0u64;
-                        while offset <= max_offset {
-                            match client.search_episodes(&gid, offset, page_size).await {
-                                Ok(items) => {
-                                    let got = items.len();
-                                    all_items.extend(items);
-                                    if (got as u64) < page_size {
-                                        break; // no more results
-                                    }
-                                }
-                                Err(_) => break,
-                            }
-                            offset += page_size;
-
-                            // Send partial results every few pages
-                            if all_items.len() >= 48 || offset > max_offset {
-                                let batch = std::mem::take(&mut all_items);
-                                let done = offset > max_offset;
-                                tx.send(Action::SearchResultsPartial {
-                                    search_id: current_search_id,
-                                    items: batch,
-                                    done,
-                                }).ok();
-                            }
-                        }
-
-                        // Send any remaining items
-                        if !all_items.is_empty() {
-                            tx.send(Action::SearchResultsPartial {
-                                search_id: current_search_id,
-                                items: all_items,
-                                done: true,
-                            }).ok();
-                        } else {
-                            // Ensure done signal is sent
-                            tx.send(Action::SearchResultsPartial {
-                                search_id: current_search_id,
-                                items: vec![],
-                                done: true,
-                            }).ok();
-                        }
-                    });
-                }
-            }
+            // Genre search
+            Action::SearchByGenre { genre_id } => self.search_by_genre(genre_id)?,
             Action::SearchResultsPartial { search_id, items, done } => {
-                if search_id != self.search_id {
-                    return Ok(()); // stale results
-                }
-                if !items.is_empty() {
-                    self.discovery_list.append_items(items);
-                }
-                if done {
-                    self.discovery_list.loading = false;
+                if search_id == self.search_id {
+                    if !items.is_empty() { self.discovery_list.append_items(items); }
+                    if done { self.discovery_list.loading = false; }
                 }
             }
-            Action::SwitchSubTab(idx) => {
-                // Clear current list immediately so old data doesn't show
-                self.discovery_list.set_items(vec![]);
-                self.discovery_list.loading = true;
-                self.viewing_genre_results = false;
-                // Clear any active filter
-                self.discovery_list.set_filter(None);
-                self.search_bar.update(&Action::Back)?;
-                // Route through NtsTab coordinator
-                let actions = self.nts_tab.switch_sub_tab(idx);
-                if actions.is_empty() {
-                    // Already loaded before — force reload
-                    match self.nts_tab.active_sub {
-                        NtsSubTab::Live => self.action_tx.send(Action::LoadNtsLive)?,
-                        NtsSubTab::Picks => self.action_tx.send(Action::LoadNtsPicks)?,
-                        NtsSubTab::Search => self.action_tx.send(Action::LoadGenres)?,
-                    }
-                } else {
-                    for a in actions { self.action_tx.send(a)?; }
-                }
-            }
+
+            // Tab switching
+            Action::SwitchSubTab(idx) => self.switch_sub_tab(idx)?,
+
+            // Search / filter
             Action::SearchSubmit => {
                 let query = self.search_bar.input().to_string();
-                if !query.is_empty() {
-                    self.action_tx.send(Action::FilterList(query))?;
+                self.action_tx.send(if query.is_empty() {
+                    Action::ClearFilter
                 } else {
-                    self.action_tx.send(Action::ClearFilter)?;
-                }
+                    Action::FilterList(query)
+                })?;
             }
-            Action::OpenDirectPlay => {
-                self.direct_play_modal.show();
-            }
-            Action::CloseDirectPlay => {
-                self.direct_play_modal.hide();
-            }
-            // ─────────────────────────────────────────────────────────────────
-            Action::PlaybackStarted { .. } => {
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
-            }
-            Action::PlaybackLoading => {
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
-            }
-            Action::PlaybackPosition(_) => {
+            Action::FilterList(query) => self.discovery_list.set_filter(Some(query)),
+            Action::ClearFilter => self.discovery_list.set_filter(None),
+
+            // Direct play modal
+            Action::OpenDirectPlay => self.direct_play_modal.show(),
+            Action::CloseDirectPlay => self.direct_play_modal.hide(),
+
+            // Playback state updates (forwarded to display components)
+            Action::PlaybackStarted { .. } | Action::PlaybackLoading | Action::PlaybackPosition(_) => {
                 self.now_playing.update(&action)?;
                 self.play_controls.update(&action)?;
             }
@@ -720,24 +312,10 @@ impl App {
             Action::PlaybackFinished => {
                 self.now_playing.update(&action)?;
                 self.play_controls.update(&action)?;
-                // Auto-advance queue if there's a next track
-                if let Some(next) = self.queue.next() {
-                    let url = next.url.clone();
-                    let title = next.item.display_title();
-                    let item = next.item.clone();
-                    self.play_controls.queue_pos = self.queue.current_index();
-                    self.now_playing.buffering = true;
-                    self.now_playing.stream_metadata = None;
-                    self.now_playing.current_item = Some(item);
-                    self.play_controls.buffering = true;
-                    self.sync_queue_to_now_playing();
-                    if let Err(e) = self.player.play(&url).await {
-                        self.action_tx.send(Action::ShowError(e.to_string()))?;
-                    } else {
-                        self.action_tx.send(Action::PlaybackStarted { title, url })?;
-                    }
-                }
+                self.play_queue_track(Queue::next).await?;
             }
+
+            // Errors & help
             Action::ShowError(msg) => {
                 self.error_message = Some(msg);
                 let tx = self.action_tx.clone();
@@ -746,46 +324,28 @@ impl App {
                     tx.send(Action::ClearError).ok();
                 });
             }
-            Action::ClearError => {
-                self.error_message = None;
-            }
-            Action::VolumeUp => {
-                let _ = self.player.set_volume(5.0).await;
-                if let Ok(vol) = self.player.get_volume().await {
-                    self.action_tx.send(Action::VolumeChanged(vol.round().clamp(0.0, 100.0) as u8))?;
-                }
-            }
-            Action::VolumeDown => {
-                let _ = self.player.set_volume(-5.0).await;
-                if let Ok(vol) = self.player.get_volume().await {
-                    self.action_tx.send(Action::VolumeChanged(vol.round().clamp(0.0, 100.0) as u8))?;
-                }
-            }
-            Action::VolumeChanged(vol) => {
-                self.play_controls.update(&Action::VolumeChanged(vol))?;
-            }
-            Action::FilterList(query) => {
-                self.discovery_list.set_filter(Some(query.clone()));
-            }
-            Action::ClearFilter => {
-                self.discovery_list.set_filter(None);
-            }
+            Action::ClearError => self.error_message = None,
+            Action::ShowHelp => self.show_help = true,
+            Action::HideHelp => self.show_help = false,
+
+            // Volume
+            Action::VolumeUp => self.adjust_volume(5.0).await?,
+            Action::VolumeDown => self.adjust_volume(-5.0).await?,
+            Action::VolumeChanged(vol) => { self.play_controls.update(&Action::VolumeChanged(vol))?; }
+
+            // Navigation
             Action::Back => {
-                // On Search tab viewing genre results, go back to genre list
                 if self.nts_tab.active_sub == NtsSubTab::Search && self.viewing_genre_results {
                     self.nts_tab.loaded.remove("Search");
                     self.action_tx.send(Action::LoadGenres)?;
                 } else {
-                    // Clear filter when going back
                     self.discovery_list.set_filter(None);
                 }
-                // Also forward to components (search bar, etc.)
                 self.search_bar.update(&Action::Back)?;
             }
-            Action::ShowHelp => self.show_help = true,
-            Action::HideHelp => self.show_help = false,
+
+            // Forward anything unhandled to components
             ref action => {
-                // Forward to components
                 let results = self.nts_tab.update(action)?;
                 for a in results { self.action_tx.send(a)?; }
                 let results = self.discovery_list.update(action)?;
@@ -798,18 +358,226 @@ impl App {
         Ok(())
     }
 
-    fn sync_queue_to_now_playing(&mut self) {
-        let items: Vec<(String, String)> = self
-            .queue
-            .items()
-            .iter()
-            .map(|qi| (qi.item.display_title(), qi.item.subtitle().to_string()))
-            .collect();
-        let current = self.queue.current_index();
-        self.now_playing.set_queue(items, current);
+    // ── Playback helpers ──
+
+    /// Start playing an item: enqueue it, and if nothing is playing, start playback.
+    async fn play_item(&mut self, item: DiscoveryItem) -> anyhow::Result<()> {
+        let Some(url) = item.playback_url() else { return Ok(()) };
+        let nothing_playing = self.now_playing.current_item.is_none();
+        let new_index = self.queue.len();
+
+        self.queue.add(QueueItem { item: item.clone(), url: url.clone(), stream_title: None });
+        self.sync_play_controls();
+        self.sync_queue_to_now_playing();
+
+        if nothing_playing {
+            self.queue.play_at(new_index);
+            self.sync_play_controls();
+            self.now_playing.update(&Action::PlayItem(item.clone()))?;
+            self.player.play(&url).await?;
+            self.action_tx.send(Action::PlaybackStarted { title: item.display_title(), url })?;
+            self.action_tx.send(Action::AddToHistory(item))?;
+            self.sync_queue_to_now_playing();
+        }
+        Ok(())
     }
 
-    /// Drain all pending actions from the channel and process them. Used in tests.
+    /// Advance to the next or previous track in the queue and play it.
+    async fn play_queue_track(&mut self, advance: fn(&mut Queue) -> Option<&QueueItem>) -> anyhow::Result<()> {
+        let Some(track) = advance(&mut self.queue) else { return Ok(()) };
+        let url = track.url.clone();
+        let title = track.item.display_title();
+        let item = track.item.clone();
+
+        self.play_controls.queue_pos = self.queue.current_index();
+        self.now_playing.buffering = true;
+        self.now_playing.stream_metadata = None;
+        self.now_playing.current_item = Some(item);
+        self.play_controls.buffering = true;
+        self.sync_queue_to_now_playing();
+
+        if let Err(e) = self.player.play(&url).await {
+            self.action_tx.send(Action::ShowError(e.to_string()))?;
+        } else {
+            self.action_tx.send(Action::PlaybackStarted { title, url })?;
+        }
+        Ok(())
+    }
+
+    async fn adjust_volume(&mut self, delta: f64) -> anyhow::Result<()> {
+        let _ = self.player.set_volume(delta).await;
+        if let Ok(vol) = self.player.get_volume().await {
+            self.action_tx.send(Action::VolumeChanged(vol.round().clamp(0.0, 100.0) as u8))?;
+        }
+        Ok(())
+    }
+
+    // ── Queue helpers ──
+
+    fn enqueue(&mut self, item: DiscoveryItem, insert_next: bool) {
+        let url = item.playback_url().unwrap_or_default();
+        let qi = QueueItem { item, url, stream_title: None };
+        if insert_next { self.queue.add_next(qi); } else { self.queue.add(qi); }
+        self.sync_play_controls();
+        self.sync_queue_to_now_playing();
+    }
+
+    fn sync_play_controls(&mut self) {
+        self.play_controls.queue_pos = self.queue.current_index();
+        self.play_controls.queue_len = self.queue.len();
+    }
+
+    fn sync_queue_to_now_playing(&mut self) {
+        let items: Vec<(String, String)> = self
+            .queue.items().iter()
+            .map(|qi| (qi.item.display_title(), qi.item.subtitle().to_string()))
+            .collect();
+        self.now_playing.set_queue(items, self.queue.current_index());
+    }
+
+    // ── Favorite helpers ──
+
+    fn toggle_favorite(&mut self) -> anyhow::Result<()> {
+        let Some(item) = self.discovery_list.selected_item().cloned() else { return Ok(()) };
+        let key = item.favorite_key();
+        if self.favorites.contains(&key) {
+            self.db.remove_favorite(&key)?;
+            self.favorites.remove(&key);
+        } else {
+            self.db.add_favorite(&item)?;
+            self.favorites.insert(key);
+        }
+        self.discovery_list.set_favorites(self.favorites.clone());
+        Ok(())
+    }
+
+    // ── Data loading helpers ──
+
+    fn spawn_fetch_live(&self) {
+        let tx = self.action_tx.clone();
+        let client = self.nts_client.clone();
+        tokio::spawn(async move {
+            match client.fetch_live().await {
+                Ok(items) => { tx.send(Action::NtsLiveLoaded(items)).ok(); }
+                Err(e) => { tx.send(Action::ShowError(e.to_string())).ok(); }
+            }
+        });
+    }
+
+    fn spawn_fetch_picks(&self) {
+        let tx = self.action_tx.clone();
+        let client = self.nts_client.clone();
+        tokio::spawn(async move {
+            match client.fetch_picks().await {
+                Ok(items) => { tx.send(Action::NtsPicksLoaded(items)).ok(); }
+                Err(e) => { tx.send(Action::ShowError(e.to_string())).ok(); }
+            }
+        });
+    }
+
+    fn load_genres(&mut self) -> anyhow::Result<()> {
+        let fav_count = self.db.list_favorites(None, 1000, 0)?.len();
+        let hist_count = self.db.list_history(1000, 0)?.len();
+
+        let mut items: Vec<DiscoveryItem> = Vec::with_capacity(TOP_GENRES.len() + 2);
+        items.push(DiscoveryItem::NtsGenre {
+            name: format!("My Favorites ({})", fav_count),
+            genre_id: "_favorites".to_string(),
+        });
+        items.push(DiscoveryItem::NtsGenre {
+            name: format!("History ({})", hist_count),
+            genre_id: "_history".to_string(),
+        });
+        for &(id, name) in TOP_GENRES {
+            items.push(DiscoveryItem::NtsGenre {
+                name: name.to_string(),
+                genre_id: id.to_string(),
+            });
+        }
+
+        self.action_tx.send(Action::GenresLoaded(items))?;
+        self.viewing_genre_results = false;
+        Ok(())
+    }
+
+    fn search_by_genre(&mut self, genre_id: String) -> anyhow::Result<()> {
+        self.search_id += 1;
+        let sid = self.search_id;
+        self.discovery_list.set_items(vec![]);
+        self.discovery_list.loading = true;
+        self.viewing_genre_results = true;
+
+        // Special local-DB genres
+        if genre_id == "_favorites" || genre_id == "_history" {
+            let items: Vec<DiscoveryItem> = if genre_id == "_favorites" {
+                self.db.list_favorites(None, 1000, 0)?.iter().map(|r| r.to_discovery_item()).collect()
+            } else {
+                self.db.list_history(1000, 0)?.iter().map(|r| r.to_discovery_item()).collect()
+            };
+            self.action_tx.send(Action::SearchResultsPartial { search_id: sid, items, done: true })?;
+            return Ok(());
+        }
+
+        // Remote paginated search
+        let tx = self.action_tx.clone();
+        let client = self.nts_client.clone();
+        tokio::spawn(async move {
+            let page_size = 12u64;
+            let max_offset = 240u64;
+            let mut buf = Vec::new();
+            let mut offset = 0u64;
+
+            while offset <= max_offset {
+                match client.search_episodes(&genre_id, offset, page_size).await {
+                    Ok(items) => {
+                        let got = items.len();
+                        buf.extend(items);
+                        if (got as u64) < page_size { break; }
+                    }
+                    Err(_) => break,
+                }
+                offset += page_size;
+
+                if buf.len() >= 48 || offset > max_offset {
+                    let batch = std::mem::take(&mut buf);
+                    let done = offset > max_offset;
+                    tx.send(Action::SearchResultsPartial { search_id: sid, items: batch, done }).ok();
+                }
+            }
+
+            // Flush remaining
+            tx.send(Action::SearchResultsPartial {
+                search_id: sid,
+                items: buf,
+                done: true,
+            }).ok();
+        });
+
+        Ok(())
+    }
+
+    fn switch_sub_tab(&mut self, idx: usize) -> anyhow::Result<()> {
+        self.discovery_list.set_items(vec![]);
+        self.discovery_list.loading = true;
+        self.viewing_genre_results = false;
+        self.discovery_list.set_filter(None);
+        self.search_bar.update(&Action::Back)?;
+
+        let actions = self.nts_tab.switch_sub_tab(idx);
+        if actions.is_empty() {
+            // Already visited — force reload
+            match self.nts_tab.active_sub {
+                NtsSubTab::Live => self.action_tx.send(Action::LoadNtsLive)?,
+                NtsSubTab::Picks => self.action_tx.send(Action::LoadNtsPicks)?,
+                NtsSubTab::Search => self.action_tx.send(Action::LoadGenres)?,
+            }
+        } else {
+            for a in actions { self.action_tx.send(a)?; }
+        }
+        Ok(())
+    }
+
+    /// Drain all pending actions. Used in tests.
     #[allow(dead_code)]
     pub async fn flush_actions(&mut self) {
         while let Ok(action) = self.action_rx.try_recv() {

@@ -1,0 +1,239 @@
+// Braille-dot blob visualizer for the now-playing panel.
+//
+// Renders an animated, color-cycling blob using Unicode braille characters.
+// Each terminal cell maps to a 2x4 braille dot grid, giving sub-character
+// resolution. The blob shape is a sum of sinusoids at different frequencies,
+// producing an organic, lava-lamp-like motion.
+
+use ratatui::{layout::Rect, style::Color, Frame};
+
+/// Three color palettes the visualizer cycles through over time.
+const PALETTES: &[&[Color]; 3] = &[
+    &[Color::Cyan, Color::Blue, Color::Magenta, Color::LightMagenta],
+    &[Color::Yellow, Color::Red, Color::Magenta, Color::LightRed],
+    &[Color::Green, Color::Cyan, Color::White, Color::LightGreen],
+];
+
+/// Animated blob state. Call `tick()` each frame, then `draw()` to render.
+pub struct BlobVisualizer {
+    pub phase: f64,
+    pub color_phase: f64,
+    pub intensity: f32,
+    pub beat: f64,
+    prev_position: f64,
+}
+
+impl BlobVisualizer {
+    pub fn new() -> Self {
+        Self {
+            phase: 0.0,
+            color_phase: 0.0,
+            intensity: 0.0,
+            beat: 0.0,
+            prev_position: 0.0,
+        }
+    }
+
+    /// Advance animation state for one frame.
+    ///
+    /// `position_secs` is the current playback position — used to detect
+    /// whether audio is actually advancing (for beat reactivity).
+    pub fn tick(&mut self, playing: bool, paused: bool, buffering: bool, position_secs: f64) {
+        if playing {
+            if buffering {
+                self.phase += 0.04;
+                self.color_phase += 0.003;
+                self.beat = 0.0;
+            } else if paused {
+                self.beat = 0.0;
+            } else {
+                let pos_delta = position_secs - self.prev_position;
+                if pos_delta > 0.0 {
+                    let raw = (self.phase * 2.5).sin() * 0.5 + 0.5;
+                    self.beat = raw * raw * raw * raw; // ^4 for sharp peaks
+                } else {
+                    self.beat *= 0.9;
+                }
+                self.phase += 0.08 + 0.04 * self.beat;
+                self.color_phase += 0.003;
+            }
+        } else {
+            self.phase += 0.01;
+            self.color_phase += 0.003;
+            self.beat = 0.0;
+        }
+        self.prev_position = position_secs;
+
+        // Smoothly interpolate intensity toward the target
+        let target = if !playing {
+            0.0
+        } else if buffering {
+            0.3
+        } else if paused {
+            0.6
+        } else {
+            1.0
+        };
+        self.intensity += (target - self.intensity) * 0.05;
+    }
+
+    /// Render the blob into `area` using braille characters.
+    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+        if area.width == 0 || area.height == 0 || self.intensity < 0.01 {
+            return;
+        }
+
+        let beat_mod = 0.7 + 0.3 * self.beat;
+        let (base, amps) = self.blob_params(beat_mod);
+
+        let eff_base = base * self.intensity as f64;
+        let eff_amps = [
+            amps[0] * self.intensity as f64,
+            amps[1] * self.intensity as f64,
+            amps[2] * self.intensity as f64,
+            amps[3] * self.intensity as f64,
+        ];
+
+        let cols = area.width as usize;
+        let rows = area.height as usize;
+        let dot_cols = cols * 2;
+        let dot_rows = rows * 4;
+        let cx = dot_cols as f64 / 2.0;
+        let cy = dot_rows as f64 / 2.0;
+        let scale = cx.min(cy).max(1.0);
+
+        let buf = frame.buffer_mut();
+
+        // Braille dot bit positions and their (dx, dy) within a 2x4 cell
+        let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
+        let dot_offsets: [(usize, usize); 8] = [
+            (0, 0), (0, 1), (0, 2),
+            (1, 0), (1, 1), (1, 2),
+            (0, 3), (1, 3),
+        ];
+
+        for row in 0..rows {
+            for col in 0..cols {
+                let mut dots: u8 = 0;
+                let mut best_dr: f64 = 1.0;
+                let mut any_inside = false;
+
+                for (i, &(dx, dy)) in dot_offsets.iter().enumerate() {
+                    let px = (col * 2 + dx) as f64;
+                    let py = (row * 4 + dy) as f64;
+                    let rel_x = (px - cx) / scale;
+                    let rel_y = (py - cy) / scale;
+                    let dist = (rel_x * rel_x + rel_y * rel_y).sqrt();
+                    let angle = rel_y.atan2(rel_x);
+                    let r = self.radius(angle, eff_base, &eff_amps);
+
+                    if dist < r {
+                        dots |= dot_bits[i];
+                        let dr = dist / r.max(0.001);
+                        if dr < best_dr {
+                            best_dr = dr;
+                        }
+                        any_inside = true;
+                    }
+                }
+
+                if any_inside {
+                    let ch = char::from_u32(0x2800 + dots as u32).unwrap_or(' ');
+                    let color = self.color_at(best_dr);
+                    let x = area.x + col as u16;
+                    let y = area.y + row as u16;
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_char(ch);
+                        cell.set_fg(color);
+                    }
+                }
+            }
+        }
+    }
+
+    // --- private helpers ---
+
+    /// Choose blob base size and harmonic amplitudes based on current state.
+    fn blob_params(&self, beat_mod: f64) -> (f64, [f64; 4]) {
+        if self.intensity < 0.01 {
+            // Stopped — small residual
+            return (0.2, [0.02, 0.01, 0.01, 0.01]);
+        }
+
+        if self.intensity < 0.35 {
+            // Buffering — gentle throb
+            let pulse = 0.4 + 0.1 * (self.phase * 1.5).sin();
+            return (pulse, [0.04, 0.03, 0.02, 0.01]);
+        }
+
+        if self.intensity < 0.65 {
+            // Paused — frozen shape
+            return (0.4, [0.03, 0.04, 0.03, 0.05]);
+        }
+
+        // Playing — active with beat modulation
+        let breathing = 0.95 + 0.05 * (self.phase * 0.5).sin();
+        let base = 0.6 * breathing;
+        (base, [
+            0.10 * beat_mod,
+            0.12 * beat_mod,
+            0.08 * beat_mod,
+            0.15 * beat_mod,
+        ])
+    }
+
+    /// Polar radius of the blob at a given angle — sum of sinusoids.
+    fn radius(&self, theta: f64, base: f64, amps: &[f64; 4]) -> f64 {
+        let t = self.phase;
+        base + amps[0] * (2.0 * theta + t).sin()
+            + amps[1] * (3.0 * theta + t * 1.5).sin()
+            + amps[2] * (5.0 * theta + t * 0.7).cos()
+            + amps[3] * (7.0 * theta + t * 2.0).sin()
+    }
+
+    /// Pick a color for a point based on its distance from the blob center.
+    /// dr=0 is the center, dr=1 is the edge.
+    fn color_at(&self, dr: f64) -> Color {
+        let palette_f = self.color_phase % (PALETTES.len() as f64);
+        let idx = palette_f as usize % PALETTES.len();
+        let next = (idx + 1) % PALETTES.len();
+        let blend = palette_f.fract() as f32;
+
+        let zone = if dr < 0.4 { 0 } else if dr < 0.7 { 1 } else if dr < 0.9 { 2 } else { 3 };
+
+        blend_colors(PALETTES[idx][zone], PALETTES[next][zone], blend)
+    }
+}
+
+/// Linear interpolation between two ratatui colors in RGB space.
+fn blend_colors(c1: Color, c2: Color, t: f32) -> Color {
+    let (r1, g1, b1) = color_to_rgb(c1);
+    let (r2, g2, b2) = color_to_rgb(c2);
+    Color::Rgb(
+        (r1 as f32 * (1.0 - t) + r2 as f32 * t) as u8,
+        (g1 as f32 * (1.0 - t) + g2 as f32 * t) as u8,
+        (b1 as f32 * (1.0 - t) + b2 as f32 * t) as u8,
+    )
+}
+
+fn color_to_rgb(c: Color) -> (u8, u8, u8) {
+    match c {
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Black => (0, 0, 0),
+        Color::Red => (205, 49, 49),
+        Color::Green => (13, 188, 121),
+        Color::Yellow => (229, 229, 16),
+        Color::Blue => (36, 114, 200),
+        Color::Magenta => (188, 63, 188),
+        Color::Cyan => (17, 168, 205),
+        Color::White => (229, 229, 229),
+        Color::DarkGray => (118, 118, 118),
+        Color::LightRed => (241, 76, 76),
+        Color::LightGreen => (35, 209, 139),
+        Color::LightYellow => (245, 245, 67),
+        Color::LightBlue => (59, 142, 234),
+        Color::LightMagenta => (214, 112, 214),
+        Color::LightCyan => (41, 184, 219),
+        _ => (180, 180, 180),
+    }
+}

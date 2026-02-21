@@ -10,9 +10,7 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
-use crate::components::Component;
-
-const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+use crate::components::{Component, BRAILLE_SPINNER};
 
 pub struct PlayControls {
     action_tx: Option<UnboundedSender<Action>>,

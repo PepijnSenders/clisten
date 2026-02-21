@@ -1,3 +1,6 @@
+// Every user interaction, async result, and internal event is represented as an
+// Action variant. The App event loop dispatches these to component handlers.
+
 use crate::api::models::DiscoveryItem;
 
 #[derive(Debug, Clone)]
@@ -34,7 +37,7 @@ pub enum Action {
 
     LoadGenres,
     GenresLoaded(Vec<DiscoveryItem>),
-    SearchByGenre { genre_id: String, genre_name: String },
+    SearchByGenre { genre_id: String },
     SearchResultsPartial { search_id: u64, items: Vec<DiscoveryItem>, done: bool },
 
     FilterList(String),

@@ -68,7 +68,6 @@ impl Component for SearchBar {
         match action {
             Action::FocusSearch => { self.focused = true; }
             Action::Back => { self.focused = false; self.input.clear(); }
-            Action::SearchClear => { self.input.clear(); }
             Action::SearchSubmit => {
                 // Clear input and unfocus after submit
                 self.input.clear();

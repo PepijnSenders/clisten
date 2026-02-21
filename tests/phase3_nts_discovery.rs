@@ -13,7 +13,6 @@ fn make_episode(name: &str, alias: &str) -> DiscoveryItem {
         genres: vec!["Ambient".to_string()],
         location: Some("London".to_string()),
         audio_url: Some(format!("https://soundcloud.com/ntslive/{}", alias)),
-        description: None,
     }
 }
 

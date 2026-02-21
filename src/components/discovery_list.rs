@@ -12,9 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::api::models::DiscoveryItem;
-use crate::components::Component;
-
-const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+use crate::components::{Component, BRAILLE_SPINNER};
 
 pub struct DiscoveryList {
     action_tx: Option<UnboundedSender<Action>>,
@@ -148,10 +146,9 @@ impl Component for DiscoveryList {
             KeyCode::Enter => {
                 if let Some(item) = self.selected_item() {
                     match item {
-                        DiscoveryItem::NtsGenre { genre_id, name, .. } => {
+                        DiscoveryItem::NtsGenre { genre_id, .. } => {
                             tx.send(Action::SearchByGenre {
                                 genre_id: genre_id.clone(),
-                                genre_name: name.clone(),
                             })?;
                         }
                         _ => {

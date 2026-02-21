@@ -1,4 +1,5 @@
-// src/api/nts.rs
+// HTTP client for the NTS Radio public API (live streams, picks, genre search).
+// Also contains the static TOP_GENRES list (genres with 500+ episodes).
 
 use crate::api::models::*;
 
@@ -35,12 +36,9 @@ impl NtsClient {
                     || broadcast.broadcast_title.clone(),
                     |d| d.name.clone(),
                 ),
-                broadcast_title: broadcast.broadcast_title.clone(),
                 genres: detail
                     .and_then(|d| d.genres.as_ref())
                     .map_or_else(Vec::new, |g| g.iter().map(|g| g.value.clone()).collect()),
-                start: broadcast.start_timestamp.clone(),
-                end: broadcast.end_timestamp.clone(),
             });
         }
         Ok(items)
@@ -55,83 +53,6 @@ impl NtsClient {
             .await?;
 
         Ok(resp.results.into_iter().map(episode_to_discovery).collect())
-    }
-
-    pub async fn fetch_recent(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<DiscoveryItem>> {
-        let resp: NtsCollectionResponse = self.http
-            .get(format!("{}/api/v2/collections/recently-added", NTS_BASE))
-            .query(&[("offset", offset.to_string()), ("limit", limit.to_string())])
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results.into_iter().map(episode_to_discovery).collect())
-    }
-
-    #[allow(dead_code)]
-    pub async fn fetch_shows(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<DiscoveryItem>> {
-        let resp: NtsShowsResponse = self.http
-            .get(format!("{}/api/v2/shows", NTS_BASE))
-            .query(&[("offset", offset.to_string()), ("limit", limit.to_string())])
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results.into_iter().map(|show| {
-            DiscoveryItem::NtsShow {
-                name: show.name.clone(),
-                show_alias: show.show_alias.clone(),
-                genres: show.genres.as_ref()
-                    .map_or_else(Vec::new, |g| g.iter().map(|g| g.value.clone()).collect()),
-                location: show.location_long.clone(),
-                description: show.description.clone(),
-            }
-        }).collect())
-    }
-
-    #[allow(dead_code)]
-    pub async fn fetch_show_episodes(
-        &self,
-        show_alias: &str,
-        offset: u64,
-        limit: u64,
-    ) -> anyhow::Result<Vec<DiscoveryItem>> {
-        let resp: NtsCollectionResponse = self.http
-            .get(format!("{}/api/v2/shows/{}/episodes", NTS_BASE, show_alias))
-            .query(&[("offset", offset.to_string()), ("limit", limit.to_string())])
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results.into_iter().map(episode_to_discovery).collect())
-    }
-
-    /// Fetch a raw page of recently-added episodes.
-    /// Returns (episodes, was_empty) — was_empty=true means no more data at this offset.
-    pub async fn fetch_recent_raw(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<NtsEpisodeDetail>> {
-        let resp: NtsCollectionResponse = self.http
-            .get(format!("{}/api/v2/collections/recently-added", NTS_BASE))
-            .query(&[("offset", offset.to_string()), ("limit", limit.to_string())])
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results)
-    }
-
-    pub async fn fetch_genres(&self) -> anyhow::Result<Vec<NtsGenreCategory>> {
-        let resp: NtsGenresResponse = self.http
-            .get(format!("{}/api/v2/genres", NTS_BASE))
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results)
     }
 
     pub async fn search_episodes(&self, genre_id: &str, offset: u64, limit: u64) -> anyhow::Result<Vec<DiscoveryItem>> {
@@ -149,25 +70,6 @@ impl NtsClient {
 
         Ok(resp.results.into_iter().map(search_episode_to_discovery).collect())
     }
-
-    #[allow(dead_code)]
-    pub async fn fetch_mixtapes(&self) -> anyhow::Result<Vec<DiscoveryItem>> {
-        let resp: NtsMixtapesResponse = self.http
-            .get(format!("{}/api/v2/mixtapes", NTS_BASE))
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(resp.results.into_iter().map(|m| {
-            DiscoveryItem::NtsMixtape {
-                title: m.title,
-                subtitle: m.subtitle,
-                stream_url: m.audio_stream_endpoint,
-                mixtape_alias: m.mixtape_alias,
-            }
-        }).collect())
-    }
 }
 
 pub fn episode_to_discovery(ep: NtsEpisodeDetail) -> DiscoveryItem {
@@ -181,13 +83,10 @@ pub fn episode_to_discovery(ep: NtsEpisodeDetail) -> DiscoveryItem {
         audio_url: ep.audio_sources.as_ref()
             .and_then(|sources| sources.first())
             .map(|s| s.url.clone()),
-        description: ep.description.clone(),
     }
 }
 
 fn search_episode_to_discovery(ep: NtsSearchEpisode) -> DiscoveryItem {
-    // Parse show_alias and episode_alias from article.path
-    // Format: /shows/{show_alias}/episodes/{episode_alias}
     let (show_alias, episode_alias) = ep.article.as_ref()
         .map(|a| {
             let parts: Vec<&str> = a.path.trim_start_matches('/').split('/').collect();
@@ -208,11 +107,10 @@ fn search_episode_to_discovery(ep: NtsSearchEpisode) -> DiscoveryItem {
         audio_url: ep.audio_sources.as_ref()
             .and_then(|sources| sources.first())
             .map(|s| s.url.clone()),
-        description: None,
     }
 }
 
-/// Static list of genres with 500+ episodes, sorted by episode count.
+/// Genres with 500+ episodes on NTS, sorted by episode count.
 pub const TOP_GENRES: &[(&str, &str)] = &[
     ("housetechno", "House / Techno"),
     ("hiphoprandb", "Hip-Hop / R'n'B"),

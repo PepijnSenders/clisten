@@ -1,4 +1,4 @@
-// src/main.rs
+// Entry point: checks runtime deps (mpv, yt-dlp), loads config, and runs the TUI.
 
 mod action;
 mod api;
@@ -9,6 +9,7 @@ mod db;
 mod logging;
 mod player;
 mod tui;
+mod ui;
 
 use clap::Parser;
 

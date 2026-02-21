@@ -142,67 +142,6 @@ fn test_nts_collection_response_deserializes() {
     assert!(resp.metadata.is_none());
 }
 
-#[test]
-fn test_nts_channel_upcoming_extraction() {
-    let json = r#"{
-        "channel_name": "1",
-        "now": {
-            "broadcast_title": "Now Show",
-            "start_timestamp": "2026-02-18T14:00:00Z",
-            "end_timestamp": "2026-02-18T16:00:00Z",
-            "embeds": null,
-            "links": []
-        },
-        "next": {
-            "broadcast_title": "Next Show",
-            "start_timestamp": "2026-02-18T16:00:00Z",
-            "end_timestamp": "2026-02-18T18:00:00Z",
-            "embeds": null,
-            "links": []
-        },
-        "next2": {
-            "broadcast_title": "Next2 Show",
-            "start_timestamp": "2026-02-18T18:00:00Z",
-            "end_timestamp": "2026-02-18T20:00:00Z",
-            "embeds": null,
-            "links": []
-        },
-        "next3": {
-            "broadcast_title": "Next3 Show",
-            "start_timestamp": "2026-02-18T20:00:00Z",
-            "end_timestamp": "2026-02-18T22:00:00Z",
-            "embeds": null,
-            "links": []
-        }
-    }"#;
-
-    let channel: NtsChannel = serde_json::from_str(json).expect("should deserialize NtsChannel");
-    let upcoming = channel.upcoming();
-
-    assert_eq!(upcoming.len(), 3);
-    assert_eq!(upcoming[0].broadcast_title, "Next Show");
-    assert_eq!(upcoming[1].broadcast_title, "Next2 Show");
-    assert_eq!(upcoming[2].broadcast_title, "Next3 Show");
-}
-
-#[test]
-fn test_nts_channel_upcoming_extraction_no_next() {
-    let json = r#"{
-        "channel_name": "1",
-        "now": {
-            "broadcast_title": "Now Show",
-            "start_timestamp": "2026-02-18T14:00:00Z",
-            "end_timestamp": "2026-02-18T16:00:00Z",
-            "embeds": null,
-            "links": []
-        }
-    }"#;
-
-    let channel: NtsChannel = serde_json::from_str(json).expect("should deserialize NtsChannel");
-    let upcoming = channel.upcoming();
-    assert_eq!(upcoming.len(), 0);
-}
-
 // ── 2.2 DiscoveryItem ────────────────────────────────────────────────────────
 
 #[test]
@@ -210,10 +149,7 @@ fn test_discovery_item_title() {
     let live = DiscoveryItem::NtsLiveChannel {
         channel: 1,
         show_name: "Ambient Show".to_string(),
-        broadcast_title: "Ambient Show - Episode 1".to_string(),
         genres: vec!["Ambient".to_string()],
-        start: "2026-02-18T14:00:00Z".to_string(),
-        end: "2026-02-18T16:00:00Z".to_string(),
     };
     assert_eq!(live.title(), "Ambient Show");
 
@@ -224,7 +160,6 @@ fn test_discovery_item_title() {
         genres: vec!["Jazz".to_string()],
         location: Some("Berlin".to_string()),
         audio_url: Some("https://soundcloud.com/test".to_string()),
-        description: None,
     };
     assert_eq!(episode.title(), "My Episode");
 
@@ -241,7 +176,6 @@ fn test_discovery_item_title() {
         show_alias: "the-wire".to_string(),
         genres: vec!["Electronic".to_string()],
         location: None,
-        description: None,
     };
     assert_eq!(show.title(), "The Wire");
 
@@ -263,10 +197,7 @@ fn test_discovery_item_subtitle() {
     let live = DiscoveryItem::NtsLiveChannel {
         channel: 1,
         show_name: "Show".to_string(),
-        broadcast_title: "Show - Ep".to_string(),
         genres: vec!["Ambient".to_string(), "Drone".to_string()],
-        start: "2026-02-18T14:00:00Z".to_string(),
-        end: "2026-02-18T16:00:00Z".to_string(),
     };
     assert_eq!(live.subtitle(), "Ambient, Drone");
 
@@ -277,7 +208,6 @@ fn test_discovery_item_subtitle() {
         genres: vec!["Jazz".to_string()],
         location: Some("Berlin".to_string()),
         audio_url: None,
-        description: None,
     };
     assert_eq!(episode.subtitle(), "Jazz · Berlin");
 
@@ -288,7 +218,6 @@ fn test_discovery_item_subtitle() {
         genres: vec!["Jazz".to_string()],
         location: None,
         audio_url: None,
-        description: None,
     };
     assert_eq!(episode_no_loc.subtitle(), "Jazz");
 
@@ -312,20 +241,14 @@ fn test_discovery_item_playback_url() {
     let live1 = DiscoveryItem::NtsLiveChannel {
         channel: 1,
         show_name: "Show".to_string(),
-        broadcast_title: "Show".to_string(),
         genres: vec![],
-        start: "2026-02-18T14:00:00Z".to_string(),
-        end: "2026-02-18T16:00:00Z".to_string(),
     };
     assert_eq!(live1.playback_url(), Some("https://stream-relay-geo.ntslive.net/stream".to_string()));
 
     let live2 = DiscoveryItem::NtsLiveChannel {
         channel: 2,
         show_name: "Show".to_string(),
-        broadcast_title: "Show".to_string(),
         genres: vec![],
-        start: "2026-02-18T14:00:00Z".to_string(),
-        end: "2026-02-18T16:00:00Z".to_string(),
     };
     assert_eq!(live2.playback_url(), Some("https://stream-relay-geo.ntslive.net/stream2".to_string()));
 
@@ -336,7 +259,6 @@ fn test_discovery_item_playback_url() {
         genres: vec![],
         location: None,
         audio_url: Some("https://soundcloud.com/ntslive/ep".to_string()),
-        description: None,
     };
     assert_eq!(episode_with_url.playback_url(), Some("https://soundcloud.com/ntslive/ep".to_string()));
 
@@ -347,7 +269,6 @@ fn test_discovery_item_playback_url() {
         genres: vec![],
         location: None,
         audio_url: None,
-        description: None,
     };
     assert_eq!(episode_no_url.playback_url(), None);
 
@@ -356,7 +277,6 @@ fn test_discovery_item_playback_url() {
         show_alias: "show".to_string(),
         genres: vec![],
         location: None,
-        description: None,
     };
     assert_eq!(show.playback_url(), None);
 
@@ -372,10 +292,7 @@ fn test_discovery_item_favorite_key() {
     let live = DiscoveryItem::NtsLiveChannel {
         channel: 1,
         show_name: "Show".to_string(),
-        broadcast_title: "Show".to_string(),
         genres: vec![],
-        start: "2026-02-18T14:00:00Z".to_string(),
-        end: "2026-02-18T16:00:00Z".to_string(),
     };
     assert_eq!(live.favorite_key(), "nts:live:1");
 
@@ -386,7 +303,6 @@ fn test_discovery_item_favorite_key() {
         genres: vec![],
         location: None,
         audio_url: None,
-        description: None,
     };
     assert_eq!(episode.favorite_key(), "nts:episode:my-show:my-ep-2026");
 
@@ -403,7 +319,6 @@ fn test_discovery_item_favorite_key() {
         show_alias: "my-show".to_string(),
         genres: vec![],
         location: None,
-        description: None,
     };
     assert_eq!(show.favorite_key(), "nts:show:my-show");
 

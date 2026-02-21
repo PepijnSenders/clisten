@@ -10,15 +10,6 @@ use clisten::config::Config;
 fn test_config_default_values() {
     let config = Config::default();
     assert_eq!(config.general.frame_rate, 30.0);
-    assert_eq!(config.keybindings.quit, "q");
-    assert_eq!(config.keybindings.next_tab, "Tab");
-    assert_eq!(config.keybindings.prev_tab, "Shift+Tab");
-    assert_eq!(config.keybindings.scroll_down, "j");
-    assert_eq!(config.keybindings.scroll_up, "k");
-    assert_eq!(config.keybindings.play_pause, "Space");
-    assert_eq!(config.keybindings.search, "/");
-    assert_eq!(config.keybindings.favorite, "f");
-    assert_eq!(config.keybindings.help, "?");
 }
 
 #[test]
@@ -26,15 +17,9 @@ fn test_config_parse_toml() {
     let toml_str = r#"
 [general]
 frame_rate = 60.0
-
-[keybindings]
-quit = "Q"
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.general.frame_rate, 60.0);
-    assert_eq!(config.keybindings.quit, "Q");
-    // Unspecified keybindings should use defaults
-    assert_eq!(config.keybindings.next_tab, "Tab");
 }
 
 #[test]
@@ -74,18 +59,12 @@ mod component_tests {
             DiscoveryItem::NtsLiveChannel {
                 channel: 1,
                 show_name: "Show 1".to_string(),
-                broadcast_title: "Show 1".to_string(),
                 genres: vec![],
-                start: "".to_string(),
-                end: "".to_string(),
             },
             DiscoveryItem::NtsLiveChannel {
                 channel: 2,
                 show_name: "Show 2".to_string(),
-                broadcast_title: "Show 2".to_string(),
                 genres: vec![],
-                start: "".to_string(),
-                end: "".to_string(),
             },
         ]);
         assert_eq!(list.state.selected(), Some(0));
@@ -103,18 +82,12 @@ mod component_tests {
             DiscoveryItem::NtsLiveChannel {
                 channel: 1,
                 show_name: "Show 1".to_string(),
-                broadcast_title: "Show 1".to_string(),
                 genres: vec![],
-                start: "".to_string(),
-                end: "".to_string(),
             },
             DiscoveryItem::NtsLiveChannel {
                 channel: 2,
                 show_name: "Show 2".to_string(),
-                broadcast_title: "Show 2".to_string(),
                 genres: vec![],
-                start: "".to_string(),
-                end: "".to_string(),
             },
         ]);
         list.handle_key_event(make_key(KeyCode::Char('j'))).unwrap();
@@ -133,10 +106,7 @@ mod component_tests {
             DiscoveryItem::NtsLiveChannel {
                 channel: 1,
                 show_name: "Show 1".to_string(),
-                broadcast_title: "Show 1".to_string(),
                 genres: vec![],
-                start: "".to_string(),
-                end: "".to_string(),
             },
         ]);
         // At first item, k should stay at 0

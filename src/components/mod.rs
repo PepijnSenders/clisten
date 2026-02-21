@@ -1,11 +1,12 @@
 // src/components/mod.rs
 
-pub mod discovery_list;
-pub mod search_bar;
-pub mod now_playing;
-pub mod play_controls;
-pub mod nts;
+pub mod blob;
 pub mod direct_play_modal;
+pub mod discovery_list;
+pub mod now_playing;
+pub mod nts;
+pub mod play_controls;
+pub mod search_bar;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -13,6 +14,9 @@ use ratatui::layout::Rect;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
+
+/// Braille dot spinner frames, shared by loading indicators.
+pub const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub trait Component {
     /// Register the action sender for this component.
