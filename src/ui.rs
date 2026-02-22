@@ -2,7 +2,7 @@
 // and composites overlays (help, direct-play modal, error bar).
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -11,10 +11,14 @@ use crate::components::direct_play_modal::DirectPlayModal;
 use crate::components::discovery_list::DiscoveryList;
 use crate::components::now_playing::NowPlaying;
 use crate::components::nts::NtsTab;
+use crate::components::onboarding::Onboarding;
 use crate::components::play_controls::PlayControls;
 use crate::components::search_bar::SearchBar;
-use crate::components::Component;
+use crate::components::seek_modal::SeekModal;
+use crate::components::{centered_overlay, Component};
+use crate::theme::Theme;
 
+/// Snapshot of all component state needed to render a single frame.
 pub struct DrawState<'a> {
     pub nts_tab: &'a NtsTab,
     pub discovery_list: &'a DiscoveryList,
@@ -22,11 +26,24 @@ pub struct DrawState<'a> {
     pub now_playing: &'a NowPlaying,
     pub play_controls: &'a PlayControls,
     pub direct_play_modal: &'a DirectPlayModal,
+    pub seek_modal: &'a SeekModal,
+    pub onboarding: &'a Onboarding,
     pub error_message: &'a Option<String>,
     pub show_help: bool,
+    pub theme: &'a Theme,
 }
 
+/// Render the full TUI layout: left panel (tabs + list + search), right panel
+/// (now playing), bottom bar (controls), and any active overlays.
 pub fn draw(frame: &mut Frame, state: &DrawState) {
+    let theme = state.theme;
+
+    // Onboarding takes over the entire screen
+    if state.onboarding.is_active() {
+        state.onboarding.draw(frame, frame.area(), theme);
+        return;
+    }
+
     let error_height = if state.error_message.is_some() { 1 } else { 0 };
     let outer = Layout::vertical([
         Constraint::Min(0),
@@ -37,7 +54,7 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(theme.border));
     let content_area = outer_block.inner(outer[0]);
     frame.render_widget(outer_block, outer[0]);
 
@@ -51,8 +68,8 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
     ])
     .split(main[0]);
 
-    state.nts_tab.draw(frame, left[0]);
-    state.discovery_list.draw(frame, left[1]);
+    state.nts_tab.draw(frame, left[0], theme);
+    state.discovery_list.draw(frame, left[1], theme);
 
     let search_input_area = Rect {
         x: left[2].x,
@@ -60,34 +77,45 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
         width: left[2].width,
         height: 1,
     };
-    state.search_bar.draw(frame, search_input_area);
-    state.now_playing.draw(frame, main[1]);
+    state.search_bar.draw(frame, search_input_area, theme);
+    state.now_playing.draw(frame, main[1], theme);
 
-    draw_dividers(frame, content_area, main[0], left[2].y);
+    draw_dividers(frame, content_area, main[0], left[2].y, theme);
 
     if let Some(ref msg) = state.error_message {
         let error_line = Line::from(vec![
-            Span::styled(" ⚠ ", Style::default().fg(Color::Red)),
-            Span::styled(msg.as_str(), Style::default().fg(Color::Yellow)),
-            Span::styled("  Press r to retry.", Style::default().fg(Color::DarkGray)),
+            Span::styled(" ⚠ ", Style::default().fg(theme.error)),
+            Span::styled(msg.as_str(), Style::default().fg(theme.warning)),
+            Span::styled("  Press r to retry.", Style::default().fg(theme.text_dim)),
         ]);
         frame.render_widget(Paragraph::new(error_line), outer[1]);
     }
 
-    state.play_controls.draw(frame, outer[2]);
+    state.play_controls.draw(frame, outer[2], theme);
 
     if state.direct_play_modal.is_visible() {
-        state.direct_play_modal.draw(frame, frame.area());
+        state.direct_play_modal.draw(frame, frame.area(), theme);
+    }
+
+    if state.seek_modal.is_visible() {
+        state.seek_modal.draw(frame, frame.area(), theme);
     }
 
     if state.show_help {
-        draw_help_overlay(frame);
+        draw_help_overlay(frame, theme);
     }
 }
 
-fn draw_dividers(frame: &mut Frame, content_area: Rect, left_panel: Rect, search_sep_y: u16) {
+fn draw_dividers(
+    frame: &mut Frame,
+    content_area: Rect,
+    left_panel: Rect,
+    search_sep_y: u16,
+    theme: &Theme,
+) {
     let buf = frame.buffer_mut();
     let divider_x = left_panel.x + left_panel.width;
+    let border_color = theme.border;
 
     if divider_x < content_area.x + content_area.width {
         let top_y = content_area.y;
@@ -95,17 +123,17 @@ fn draw_dividers(frame: &mut Frame, content_area: Rect, left_panel: Rect, search
 
         if let Some(cell) = buf.cell_mut((divider_x, top_y.saturating_sub(1))) {
             cell.set_char('┬');
-            cell.set_fg(Color::DarkGray);
+            cell.set_fg(border_color);
         }
         for y in top_y..bottom_y {
             if let Some(cell) = buf.cell_mut((divider_x, y)) {
                 cell.set_char('│');
-                cell.set_fg(Color::DarkGray);
+                cell.set_fg(border_color);
             }
         }
         if let Some(cell) = buf.cell_mut((divider_x, bottom_y)) {
             cell.set_char('┴');
-            cell.set_fg(Color::DarkGray);
+            cell.set_fg(border_color);
         }
     }
 
@@ -113,34 +141,24 @@ fn draw_dividers(frame: &mut Frame, content_area: Rect, left_panel: Rect, search
     let left_x = content_area.x.saturating_sub(1);
     if let Some(cell) = buf.cell_mut((left_x, search_sep_y)) {
         cell.set_char('├');
-        cell.set_fg(Color::DarkGray);
+        cell.set_fg(border_color);
     }
     for x in content_area.x..left_panel.x + left_panel.width {
         if let Some(cell) = buf.cell_mut((x, search_sep_y)) {
             cell.set_char('─');
-            cell.set_fg(Color::DarkGray);
+            cell.set_fg(border_color);
         }
     }
     if divider_x < content_area.x + content_area.width {
         if let Some(cell) = buf.cell_mut((divider_x, search_sep_y)) {
             cell.set_char('┤');
-            cell.set_fg(Color::DarkGray);
+            cell.set_fg(border_color);
         }
     }
 }
 
-fn draw_help_overlay(frame: &mut Frame) {
-    let area = frame.area();
-    let overlay_width = 58u16;
-    let overlay_height = 24u16;
-    let x = area.width.saturating_sub(overlay_width) / 2;
-    let y = area.height.saturating_sub(overlay_height) / 2;
-    let overlay_area = Rect::new(
-        x,
-        y,
-        overlay_width.min(area.width),
-        overlay_height.min(area.height),
-    );
+fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
+    let overlay_area = centered_overlay(frame.area(), 58, 33);
 
     frame.render_widget(Clear, overlay_area);
 
@@ -159,6 +177,10 @@ fn draw_help_overlay(frame: &mut Frame) {
         ("p", "Previous track in queue"),
         ("s", "Stop playback"),
         ("o", "Open URL (direct play)"),
+        ("v", "Cycle visualizer"),
+        ("i", "Toggle skip NTS intro"),
+        ("← →", "Seek ±5s (accelerates)"),
+        ("t", "Open seek timeline"),
         ("/", "Focus search bar"),
         ("Escape", "Unfocus search / go back"),
         ("d", "Remove current from queue"),
@@ -172,21 +194,29 @@ fn draw_help_overlay(frame: &mut Frame) {
         Line::from(Span::styled(
             " Keybindings ",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.primary)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
     for (key, desc) in &keybindings {
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:12}", key), Style::default().fg(Color::Yellow)),
+            Span::styled(format!("  {:12}", key), Style::default().fg(theme.accent)),
             Span::raw(*desc),
         ]));
     }
     lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("  {:12}", "Enter"),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw("Restart onboarding wizard"),
+    ]));
+    lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Press any key to close",
-        Style::default().fg(Color::DarkGray),
+        "  Press any other key to close",
+        Style::default().fg(theme.text_dim),
     )));
 
     let block = Block::default()

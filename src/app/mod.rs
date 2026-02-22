@@ -1,9 +1,12 @@
 // Central coordinator: owns all components, the player, and the database.
 // Runs the event loop (key → Action → handle_action → component updates → draw).
 
+mod actions;
 mod fetch;
 mod input;
 mod playback;
+
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 
@@ -12,22 +15,61 @@ use crate::api::nts::NtsClient;
 use crate::components::direct_play_modal::DirectPlayModal;
 use crate::components::discovery_list::DiscoveryList;
 use crate::components::now_playing::NowPlaying;
-use crate::components::nts::{NtsSubTab, NtsTab};
+use crate::components::nts::NtsTab;
+use crate::components::onboarding::Onboarding;
 use crate::components::play_controls::PlayControls;
 use crate::components::search_bar::SearchBar;
+use crate::components::seek_modal::SeekModal;
 use crate::components::Component;
 use crate::config::Config;
 use crate::db::Database;
 use crate::player::queue::Queue;
 use crate::player::MpvPlayer;
+use crate::theme::Theme;
 use crate::tui::{Tui, TuiEvent};
 use crate::ui;
+
+/// Tracks accelerating seek behavior and pending intro skip.
+#[derive(Default)]
+pub(crate) struct SeekState {
+    pub(crate) is_seekable: bool,
+    pub(crate) duration_secs: Option<f64>,
+    pub(crate) last_seek_time: Option<Instant>,
+    pub(crate) seek_streak: u32,
+    pub(crate) pending_intro_skip: bool,
+}
+
+impl SeekState {
+    pub(crate) fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Calculate the seek step size, accelerating on rapid presses.
+    pub(crate) fn step(&mut self) -> f64 {
+        let now = Instant::now();
+        if let Some(last) = self.last_seek_time {
+            if now.duration_since(last).as_millis() < 400 {
+                self.seek_streak += 1;
+            } else {
+                self.seek_streak = 0;
+            }
+        } else {
+            self.seek_streak = 0;
+        }
+        self.last_seek_time = Some(now);
+        match self.seek_streak {
+            0..=2 => 5.0,
+            3..=7 => 15.0,
+            _ => 30.0,
+        }
+    }
+}
 
 /// Top-level coordinator: owns every component, the mpv player, and the
 /// database. Runs the main event loop (key → action → component update → draw).
 pub struct App {
-    running: bool,
-    action_tx: mpsc::UnboundedSender<Action>,
+    pub(crate) running: bool,
+    pub(crate) action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
 
     // Components
@@ -37,10 +79,12 @@ pub struct App {
     pub(crate) now_playing: NowPlaying,
     pub(crate) play_controls: PlayControls,
     pub(crate) direct_play_modal: DirectPlayModal,
+    pub(crate) seek_modal: SeekModal,
+    pub onboarding: Onboarding,
 
     // State
     pub(crate) nts_client: NtsClient,
-    player: MpvPlayer,
+    pub(crate) player: MpvPlayer,
     pub(crate) db: Database,
     pub(crate) config: Config,
     pub queue: Queue,
@@ -51,6 +95,8 @@ pub struct App {
     pub(crate) viewing_genre_results: bool,
     /// True when viewing text query search results.
     pub(crate) viewing_query_results: bool,
+    pub(crate) theme: Theme,
+    pub(crate) seek: SeekState,
 }
 
 impl App {
@@ -58,13 +104,17 @@ impl App {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let db = Database::open()?;
         let queue = Self::restore_queue(&db);
+        let theme = Theme::from_name(&config.general.theme);
 
         let mut nts_tab = NtsTab::new();
         let mut discovery_list = DiscoveryList::new();
         let mut search_bar = SearchBar::new();
-        let mut now_playing = NowPlaying::new();
+        let mut now_playing = NowPlaying::new(config.general.visualizer);
         let mut play_controls = PlayControls::new();
+        play_controls.set_skip_nts_intro(config.general.skip_nts_intro);
         let mut direct_play_modal = DirectPlayModal::new();
+        let mut seek_modal = SeekModal::new();
+        let mut onboarding = Onboarding::new();
 
         for component in [
             &mut nts_tab as &mut dyn Component,
@@ -73,6 +123,8 @@ impl App {
             &mut now_playing,
             &mut play_controls,
             &mut direct_play_modal,
+            &mut seek_modal,
+            &mut onboarding,
         ] {
             component.register_action_handler(action_tx.clone());
         }
@@ -99,6 +151,8 @@ impl App {
             now_playing,
             play_controls,
             direct_play_modal,
+            seek_modal,
+            onboarding,
             nts_client: NtsClient::new(),
             player,
             db,
@@ -109,6 +163,8 @@ impl App {
             search_id: 0,
             viewing_genre_results: false,
             viewing_query_results: false,
+            theme,
+            seek: SeekState::default(),
         })
     }
 
@@ -116,7 +172,10 @@ impl App {
         let mut tui = Tui::new(self.config.general.frame_rate)?;
         tui.enter()?;
 
-        self.action_tx.send(Action::LoadNtsLive)?;
+        // Only load NTS data if onboarding is not active
+        if !self.onboarding.is_active() {
+            self.action_tx.send(Action::LoadNtsLive)?;
+        }
 
         while self.running {
             let state = ui::DrawState {
@@ -126,8 +185,11 @@ impl App {
                 now_playing: &self.now_playing,
                 play_controls: &self.play_controls,
                 direct_play_modal: &self.direct_play_modal,
+                seek_modal: &self.seek_modal,
+                onboarding: &self.onboarding,
                 error_message: &self.error_message,
                 show_help: self.show_help,
+                theme: &self.theme,
             };
             tui.draw(|frame| ui::draw(frame, &state))?;
 
@@ -149,207 +211,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn handle_action(&mut self, action: Action) -> anyhow::Result<()> {
-        match action {
-            // Lifecycle
-            Action::Quit => {
-                let _ = self.player.stop().await;
-                self.running = false;
-            }
-
-            // Playback
-            Action::PlayItem(ref item) => self.play_item(item.clone()).await?,
-            Action::TogglePlayPause => {
-                if !self.now_playing.is_playing() {
-                    if let Some(track) = self.queue.current() {
-                        let url = track.url.clone();
-                        let title = track.item.display_title();
-                        let item = track.item.clone();
-                        self.play_controls
-                            .set_queue_info(self.queue.current_index(), self.queue.len());
-                        self.now_playing.set_buffering(item);
-                        self.play_controls.set_buffering(true);
-                        self.sync_queue_to_now_playing();
-                        if let Err(e) = self.player.play(&url).await {
-                            self.action_tx.send(Action::ShowError(e.to_string()))?;
-                        } else {
-                            self.action_tx.send(Action::PlaybackStarted { title })?;
-                        }
-                    }
-                } else {
-                    let _ = self.player.toggle_pause().await;
-                }
-            }
-            Action::Stop => {
-                let _ = self.player.stop().await;
-            }
-            Action::NextTrack => {
-                self.play_queue_track(Queue::advance).await?;
-            }
-            Action::PrevTrack => {
-                self.play_queue_track(Queue::prev).await?;
-            }
-
-            // Queue
-            Action::AddToQueue(ref item) => self.enqueue(item.clone(), false),
-            Action::AddToQueueNext(ref item) => self.enqueue(item.clone(), true),
-            Action::RemoveFromQueue => self.remove_current_from_queue().await?,
-            Action::ClearQueue => {
-                self.queue.clear();
-                self.play_controls.set_queue_info(None, 0);
-                self.sync_queue_to_now_playing();
-                self.persist_queue();
-            }
-
-            // Data loading
-            Action::LoadNtsLive => self.spawn_fetch_live(),
-            Action::NtsLiveLoaded(items) => self.discovery_list.set_items(items),
-            Action::LoadNtsPicks => self.spawn_fetch_picks(),
-            Action::NtsPicksLoaded(items) => self.discovery_list.set_items(items),
-            Action::LoadGenres => self.load_genres()?,
-            Action::GenresLoaded(items) => {
-                self.discovery_list.set_items(items);
-                self.viewing_genre_results = false;
-                self.viewing_query_results = false;
-            }
-
-            // Genre search
-            Action::SearchByGenre { genre_id } => self.search_by_genre(genre_id)?,
-            Action::SearchResultsPartial {
-                search_id,
-                items,
-                done,
-            } => {
-                if search_id == self.search_id {
-                    if !items.is_empty() {
-                        self.discovery_list.append_items(items);
-                    }
-                    if done {
-                        self.discovery_list.set_loading(false);
-                    }
-                }
-            }
-
-            // Tab switching
-            Action::SwitchSubTab(idx) => self.switch_sub_tab(idx)?,
-
-            // Search / filter
-            Action::SearchSubmit => {
-                let query = self.search_bar.input().to_string();
-                if !query.is_empty() {
-                    // Switch to Search tab if not already there
-                    if self.nts_tab.active_sub != NtsSubTab::Search {
-                        self.nts_tab.switch_sub_tab(2);
-                    }
-                    self.action_tx
-                        .send(Action::SearchByQuery { query })?;
-                }
-            }
-            Action::SearchByQuery { query } => self.search_by_query(query)?,
-            // Direct play modal
-            Action::OpenDirectPlay => self.direct_play_modal.show(),
-            Action::CloseDirectPlay => self.direct_play_modal.hide(),
-
-            // Playback state updates (forwarded to display components)
-            Action::AudioLevels { .. } => {
-                self.now_playing.update(&action)?;
-            }
-            Action::PlaybackStarted { .. } | Action::PlaybackPosition(_) => {
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
-            }
-            Action::PlaybackLoading => {
-                self.play_controls.update(&action)?;
-            }
-            Action::StreamMetadataChanged(ref metadata) => {
-                self.queue.set_current_stream_metadata(metadata.clone());
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
-                self.sync_queue_to_now_playing();
-            }
-            Action::PlaybackFinished => {
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
-                self.play_queue_track(Queue::advance).await?;
-            }
-
-            // Errors & help
-            Action::ShowError(msg) => {
-                self.error_message = Some(msg);
-                let tx = self.action_tx.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    tx.send(Action::ClearError).ok();
-                });
-            }
-            Action::ClearError => self.error_message = None,
-            Action::ShowHelp => self.show_help = true,
-            Action::HideHelp => self.show_help = false,
-
-            // Volume
-            Action::VolumeUp => self.adjust_volume(5.0).await?,
-            Action::VolumeDown => self.adjust_volume(-5.0).await?,
-            Action::VolumeChanged(vol) => {
-                self.play_controls.update(&Action::VolumeChanged(vol))?;
-            }
-
-            // Navigation
-            Action::Back => {
-                if self.nts_tab.active_sub == NtsSubTab::Search
-                    && (self.viewing_genre_results || self.viewing_query_results)
-                {
-                    self.viewing_query_results = false;
-                    self.nts_tab.mark_unloaded(NtsSubTab::Search);
-                    self.action_tx.send(Action::LoadGenres)?;
-                } else {
-                    self.discovery_list.set_filter(None);
-                }
-                self.search_bar.update(&Action::Back)?;
-            }
-
-            // Forward anything unhandled to components
-            ref action => {
-                let results = self.nts_tab.update(action)?;
-                for a in results {
-                    self.action_tx.send(a)?;
-                }
-                let results = self.discovery_list.update(action)?;
-                for a in results {
-                    self.action_tx.send(a)?;
-                }
-                self.search_bar.update(action)?;
-                self.now_playing.update(action)?;
-                self.play_controls.update(action)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn switch_sub_tab(&mut self, idx: usize) -> anyhow::Result<()> {
-        self.discovery_list.set_items(vec![]);
-        self.discovery_list.set_loading(true);
-        self.viewing_genre_results = false;
-        self.viewing_query_results = false;
-        self.discovery_list.set_filter(None);
-        self.search_bar.update(&Action::Back)?;
-
-        let actions = self.nts_tab.switch_sub_tab(idx);
-        if actions.is_empty() {
-            match self.nts_tab.active_sub {
-                NtsSubTab::Live => self.action_tx.send(Action::LoadNtsLive)?,
-                NtsSubTab::Picks => self.action_tx.send(Action::LoadNtsPicks)?,
-                NtsSubTab::Search => self.action_tx.send(Action::LoadGenres)?,
-            }
-        } else {
-            for a in actions {
-                self.action_tx.send(a)?;
-            }
-        }
-        Ok(())
-    }
-
     pub(super) fn persist_queue(&self) {
-        let _ = self.db.save_queue(self.queue.items(), self.queue.current_index());
+        let _ = self
+            .db
+            .save_queue(self.queue.items(), self.queue.current_index());
     }
 
     fn restore_queue(db: &Database) -> Queue {

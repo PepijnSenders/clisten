@@ -19,7 +19,7 @@ pub struct AudioSource {
     pub source: String,
 }
 
-// ── Live endpoint ──
+// ── Live endpoint (/api/v2/live) ──
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NtsLiveResponse {
@@ -58,7 +58,7 @@ pub struct NtsEpisodeDetail {
     pub audio_sources: Option<Vec<AudioSource>>,
 }
 
-// ── Search episodes endpoint ──
+// ── Search episodes endpoint (/api/v2/search/episodes, /api/v2/search) ──
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NtsSearchResponse {
@@ -86,7 +86,7 @@ pub struct NtsSearchEpisode {
     pub local_date: Option<String>,
 }
 
-// ── Collection (nts-picks) ──
+// ── Collection endpoint (/api/v2/collections/nts-picks) ──
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NtsCollectionResponse {
@@ -126,6 +126,7 @@ pub enum DiscoveryItem {
 }
 
 impl DiscoveryItem {
+    /// Short display name (show name, episode name, URL, or genre).
     pub fn title(&self) -> &str {
         match self {
             Self::NtsLiveChannel { show_name, .. } => show_name,
@@ -136,6 +137,7 @@ impl DiscoveryItem {
         }
     }
 
+    /// Formatted title for the now-playing bar and queue display.
     pub fn display_title(&self) -> String {
         match self {
             Self::NtsLiveChannel {
@@ -150,6 +152,7 @@ impl DiscoveryItem {
         }
     }
 
+    /// Secondary line: genres, location, or item type label.
     pub fn subtitle(&self) -> String {
         match self {
             Self::NtsLiveChannel { genres, .. } => genres.join(", "),
@@ -164,6 +167,7 @@ impl DiscoveryItem {
         }
     }
 
+    /// The URL to hand to mpv, or None for non-playable items (genres).
     pub fn playback_url(&self) -> Option<String> {
         match self {
             Self::NtsLiveChannel { channel: 1, .. } => Some(NTS_STREAM_1.to_string()),
@@ -206,5 +210,4 @@ impl DiscoveryItem {
         };
         (title, subtitle)
     }
-
 }

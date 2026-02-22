@@ -8,5 +8,6 @@ pub mod config;
 pub mod db;
 pub mod logging;
 pub mod player;
+pub mod theme;
 pub mod tui;
 pub mod ui;

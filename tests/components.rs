@@ -149,7 +149,7 @@ mod component_tests {
     #[test]
     fn test_now_playing_initial_state() {
         let (tx, _rx) = mpsc::unbounded_channel::<Action>();
-        let mut np = NowPlaying::new();
+        let mut np = NowPlaying::default();
         np.register_action_handler(tx);
         assert!(!np.is_playing());
         assert_eq!(np.position_secs(), 0.0);

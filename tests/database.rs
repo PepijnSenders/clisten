@@ -258,25 +258,25 @@ async fn test_tab_cycles_sub_tabs() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Live);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Live);
 
     // Tab → Picks
     let key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     app.handle_key(key).unwrap();
     app.flush_actions().await;
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Picks);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Picks);
 
     // Tab → Search
     let key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     app.handle_key(key).unwrap();
     app.flush_actions().await;
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Search);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Search);
 
     // Tab → wraps to Live
     let key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     app.handle_key(key).unwrap();
     app.flush_actions().await;
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Live);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Live);
 }
 
 #[tokio::test]
@@ -285,17 +285,17 @@ async fn test_backtab_cycles_sub_tabs_reverse() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Live);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Live);
 
     // BackTab → wraps to Search
     let key = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.handle_key(key).unwrap();
     app.flush_actions().await;
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Search);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Search);
 
     // BackTab → Picks
     let key = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.handle_key(key).unwrap();
     app.flush_actions().await;
-    assert_eq!(app.nts_tab.active_sub, NtsSubTab::Picks);
+    assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Picks);
 }

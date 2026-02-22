@@ -3,6 +3,7 @@
 use super::StreamMetadata;
 use crate::api::models::DiscoveryItem;
 
+/// A single entry in the playback queue.
 #[derive(Debug, Clone)]
 pub struct QueueItem {
     pub item: DiscoveryItem,
@@ -10,6 +11,7 @@ pub struct QueueItem {
     pub stream_metadata: Option<StreamMetadata>,
 }
 
+/// Ordered playback queue with a cursor pointing at the current track.
 #[derive(Default)]
 pub struct Queue {
     items: Vec<QueueItem>,
@@ -38,7 +40,6 @@ impl Queue {
         }
     }
 
-    #[allow(dead_code)] // used by integration tests
     pub fn remove(&mut self, index: usize) {
         if index < self.items.len() {
             self.items.remove(index);
@@ -57,7 +58,6 @@ impl Queue {
         self.current_index = None;
     }
 
-    #[allow(dead_code)] // used by integration tests
     pub fn current(&self) -> Option<&QueueItem> {
         self.current_index.and_then(|i| self.items.get(i))
     }
@@ -88,7 +88,6 @@ impl Queue {
         &self.items
     }
 
-    #[allow(dead_code)] // used by integration tests
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }

@@ -13,6 +13,7 @@ use crate::action::Action;
 use anyhow::Context;
 use ipc::MpvProcess;
 
+/// Metadata gleaned from an active stream (ICY headers, ID3 tags, etc.).
 #[derive(Debug, Clone, Default)]
 pub struct StreamMetadata {
     pub station_name: Option<String>, // icy-name
@@ -37,6 +38,7 @@ impl StreamMetadata {
         self.station_name.clone().or_else(|| self.album.clone())
     }
 
+    /// True when no metadata fields have been populated.
     pub fn is_empty(&self) -> bool {
         self.station_name.is_none()
             && self.title.is_none()
@@ -45,6 +47,7 @@ impl StreamMetadata {
     }
 }
 
+/// Wraps an mpv child process, communicating over a Unix IPC socket.
 #[derive(Clone)]
 pub struct MpvPlayer {
     socket_path: PathBuf,
@@ -79,11 +82,14 @@ impl MpvPlayer {
 
     /// Spawn mpv with IPC socket for the given URL.
     pub async fn play(&mut self, url: &str) -> anyhow::Result<()> {
-        if let Some(tx) = &self.action_tx {
-            tx.send(Action::PlaybackLoading).ok();
-        }
+        let tx = self
+            .action_tx
+            .clone()
+            .expect("action_tx must be set before play()");
 
+        tx.send(Action::PlaybackLoading).ok();
         self.stop().await?;
+        // Remove stale socket from a previous mpv instance, if any.
         let _ = std::fs::remove_file(&self.socket_path);
 
         let child = Command::new("mpv")
@@ -99,24 +105,35 @@ impl MpvPlayer {
 
         *self.child.lock().await = Some(child);
 
-        ipc::spawn_exit_monitor(self.child.clone(), self.action_tx.clone());
-        ipc::spawn_position_poller(self.socket_path.clone(), self.action_tx.clone());
-        ipc::spawn_metadata_observer(
-            self.socket_path.clone(),
-            self.action_tx.clone(),
-            url.to_string(),
-        );
-        ipc::spawn_audio_level_poller(self.socket_path.clone(), self.action_tx.clone());
+        ipc::spawn_exit_monitor(self.child.clone(), tx.clone());
+        ipc::spawn_position_poller(self.socket_path.clone(), tx.clone());
+        ipc::spawn_duration_poller(self.socket_path.clone(), tx.clone());
+        ipc::spawn_metadata_observer(self.socket_path.clone(), tx.clone(), url.to_string());
+        ipc::spawn_audio_level_poller(self.socket_path.clone(), tx);
 
         Ok(())
     }
 
+    /// Seek by the given number of seconds (negative = backward).
+    pub async fn seek_relative(&self, seconds: f64) -> anyhow::Result<()> {
+        ipc::send_command(
+            &self.socket_path,
+            &format!(r#"{{"command":["seek",{},"relative"]}}"#, seconds),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Toggle pause on the running mpv instance.
     pub async fn toggle_pause(&self) -> anyhow::Result<()> {
         ipc::send_command(&self.socket_path, r#"{"command":["cycle","pause"]}"#).await?;
         Ok(())
     }
 
+    /// Quit mpv and clean up the IPC socket.
     pub async fn stop(&self) -> anyhow::Result<()> {
+        // Best-effort shutdown: mpv may have already exited or the socket may
+        // not exist. Errors are harmless — we just need to ensure cleanup.
         let _ = ipc::send_command(&self.socket_path, r#"{"command":["quit"]}"#).await;
         let _ = std::fs::remove_file(&self.socket_path);
         let mut guard = self.child.lock().await;
@@ -139,6 +156,7 @@ impl MpvPlayer {
         Ok(())
     }
 
+    /// Read the current volume level from mpv.
     pub async fn get_volume(&self) -> anyhow::Result<f64> {
         let response = ipc::send_command(
             &self.socket_path,
@@ -154,6 +172,7 @@ impl MpvPlayer {
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
+        // Best-effort cleanup on drop — try_lock because we can't await.
         if let Ok(mut guard) = self.child.try_lock() {
             if let Some(ref mut child) = *guard {
                 let _ = child.start_kill();

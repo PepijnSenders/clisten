@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -11,7 +11,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::components::{Component, BRAILLE_SPINNER};
+use crate::theme::Theme;
 
+/// Bottom status bar showing playback state, keybinding hints, and queue info.
 #[derive(Default)]
 pub struct PlayControls {
     action_tx: Option<UnboundedSender<Action>>,
@@ -23,6 +25,8 @@ pub struct PlayControls {
     volume: Option<u8>,
     current_title: Option<String>,
     frame_count: u64,
+    is_seekable: bool,
+    skip_nts_intro: bool,
 }
 
 impl PlayControls {
@@ -37,6 +41,10 @@ impl PlayControls {
 
     pub fn set_buffering(&mut self, buffering: bool) {
         self.buffering = buffering;
+    }
+
+    pub fn set_skip_nts_intro(&mut self, val: bool) {
+        self.skip_nts_intro = val;
     }
 
     #[allow(dead_code)] // used by integration tests
@@ -84,11 +92,15 @@ impl Component for PlayControls {
                     self.current_title = Some(title);
                 }
             }
+            Action::PlaybackDuration(dur) => {
+                self.is_seekable = dur.is_some();
+            }
             Action::PlaybackFinished | Action::Stop => {
                 self.playing = false;
                 self.paused = false;
                 self.buffering = false;
                 self.current_title = None;
+                self.is_seekable = false;
             }
             Action::TogglePlayPause => {
                 self.paused = !self.paused;
@@ -96,12 +108,15 @@ impl Component for PlayControls {
             Action::VolumeChanged(vol) => {
                 self.volume = Some(*vol);
             }
+            Action::ToggleSkipIntro => {
+                self.skip_nts_intro = !self.skip_nts_intro;
+            }
             _ => {}
         }
         Ok(vec![])
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let status = if self.buffering {
             let idx = (self.frame_count / 3) as usize % BRAILLE_SPINNER.len();
             BRAILLE_SPINNER[idx]
@@ -118,17 +133,17 @@ impl Component for PlayControls {
         };
 
         let status_color = if self.buffering {
-            Color::Yellow
+            theme.buffering
         } else if self.playing && !self.paused {
-            Color::Green
+            theme.success
         } else {
-            Color::DarkGray
+            theme.text_dim
         };
 
         let border_color = if self.playing && !self.paused {
-            Color::Cyan
+            theme.primary
         } else {
-            Color::DarkGray
+            theme.border
         };
 
         let queue_info = if self.queue_len > 0 {
@@ -141,9 +156,9 @@ impl Component for PlayControls {
             String::new()
         };
 
-        let div = Span::styled(" │ ", Style::default().fg(Color::DarkGray));
-        let key_style = Style::default().fg(Color::White);
-        let desc_style = Style::default().fg(Color::DarkGray);
+        let div = Span::styled(" │ ", Style::default().fg(theme.border));
+        let key_style = Style::default().fg(theme.text);
+        let desc_style = Style::default().fg(theme.text_dim);
 
         // Build right-side track name for line 1
         let track_display = self.current_title.as_deref().unwrap_or("");
@@ -159,15 +174,21 @@ impl Component for PlayControls {
             Span::styled("Space", key_style),
             Span::styled(" Play/Pause", desc_style),
             div.clone(),
-            Span::styled("n", key_style),
-            Span::styled(" Next", desc_style),
-            div.clone(),
-            Span::styled("p", key_style),
-            Span::styled(" Prev", desc_style),
-            div.clone(),
             Span::styled("o", key_style),
             Span::styled(" URL", desc_style),
+            div.clone(),
+            Span::styled("v", key_style),
+            Span::styled(" Viz", desc_style),
         ];
+
+        if self.is_seekable {
+            line1_spans.push(div.clone());
+            line1_spans.push(Span::styled("←→", key_style));
+            line1_spans.push(Span::styled(" Seek", desc_style));
+            line1_spans.push(div.clone());
+            line1_spans.push(Span::styled("t", key_style));
+            line1_spans.push(Span::styled(" Timeline", desc_style));
+        }
 
         if !track_display.is_empty() {
             // Calculate used width so far
@@ -176,7 +197,7 @@ impl Component for PlayControls {
             if available > 5 {
                 let truncated: String = track_display.chars().take(available).collect();
                 line1_spans.push(Span::raw("  "));
-                line1_spans.push(Span::styled(truncated, Style::default().fg(Color::Cyan)));
+                line1_spans.push(Span::styled(truncated, Style::default().fg(theme.primary)));
             }
         }
 
@@ -187,7 +208,7 @@ impl Component for PlayControls {
             .map(|v| format!("Vol {}%", v))
             .unwrap_or_default();
 
-        let line2 = Line::from(vec![
+        let mut line2_spans = vec![
             Span::raw("   "),
             Span::styled("/", key_style),
             Span::styled(" Search", desc_style),
@@ -204,10 +225,20 @@ impl Component for PlayControls {
             Span::styled("q", key_style),
             Span::styled(" Quit", desc_style),
             Span::raw("   "),
-            Span::styled(vol_info, Style::default().fg(Color::Cyan)),
+            Span::styled(vol_info, Style::default().fg(theme.primary)),
             Span::raw("  "),
-            Span::styled(queue_info, Style::default().fg(Color::Cyan)),
-        ]);
+            Span::styled(queue_info, Style::default().fg(theme.primary)),
+        ];
+
+        if self.skip_nts_intro {
+            line2_spans.push(Span::raw("  "));
+            line2_spans.push(Span::styled(
+                "⏭ Skip Intro",
+                Style::default().fg(theme.accent),
+            ));
+        }
+
+        let line2 = Line::from(line2_spans);
 
         let block = Block::default()
             .borders(Borders::ALL)

@@ -42,25 +42,9 @@ impl App {
         &mut self,
         advance: fn(&mut Queue) -> Option<&QueueItem>,
     ) -> anyhow::Result<()> {
-        let Some(track) = advance(&mut self.queue) else {
-            return Ok(());
-        };
-        let url = track.url.clone();
-        let title = track.item.display_title();
-        let item = track.item.clone();
-
-        self.play_controls
-            .set_queue_info(self.queue.current_index(), self.queue.len());
-        self.now_playing.set_buffering(item);
-        self.play_controls.set_buffering(true);
-        self.sync_queue_to_now_playing();
-
-        self.persist_queue();
-
-        if let Err(e) = self.player.play(&url).await {
-            self.action_tx.send(Action::ShowError(e.to_string()))?;
-        } else {
-            self.action_tx.send(Action::PlaybackStarted { title })?;
+        if advance(&mut self.queue).is_some() {
+            self.start_current_track().await?;
+            self.persist_queue();
         }
         Ok(())
     }
@@ -77,24 +61,33 @@ impl App {
             self.now_playing.update(&Action::PlaybackFinished)?;
             self.play_controls.update(&Action::PlaybackFinished)?;
         } else {
-            // After remove, current_index is adjusted by Queue::remove.
-            // Play whatever is now at the current position.
-            if let Some(track) = self.queue.current() {
-                let url = track.url.clone();
-                let title = track.item.display_title();
-                let item = track.item.clone();
-                self.now_playing.set_buffering(item);
-                self.play_controls.set_buffering(true);
-                if let Err(e) = self.player.play(&url).await {
-                    self.action_tx.send(Action::ShowError(e.to_string()))?;
-                } else {
-                    self.action_tx.send(Action::PlaybackStarted { title })?;
-                }
-            }
+            self.start_current_track().await?;
         }
         self.sync_play_controls();
         self.sync_queue_to_now_playing();
         self.persist_queue();
+        Ok(())
+    }
+
+    /// Set up UI state for the current track and start mpv playback.
+    pub(super) async fn start_current_track(&mut self) -> anyhow::Result<()> {
+        let Some(track) = self.queue.current() else {
+            return Ok(());
+        };
+        let url = track.url.clone();
+        let title = track.item.display_title();
+        let item = track.item.clone();
+
+        self.sync_play_controls();
+        self.now_playing.set_buffering(item);
+        self.play_controls.set_buffering(true);
+        self.sync_queue_to_now_playing();
+
+        if let Err(e) = self.player.play(&url).await {
+            self.action_tx.send(Action::ShowError(e.to_string()))?;
+        } else {
+            self.action_tx.send(Action::PlaybackStarted { title })?;
+        }
         Ok(())
     }
 

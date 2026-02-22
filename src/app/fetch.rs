@@ -1,6 +1,7 @@
 // Data fetching: spawns async tasks that load NTS live/picks/genre data.
 
 use std::future::Future;
+use std::pin::Pin;
 
 use crate::action::Action;
 use crate::api::genres::TOP_GENRES;
@@ -13,6 +14,7 @@ const SEARCH_PAGE_SIZE: u64 = 12;
 const SEARCH_MAX_OFFSET: u64 = 240;
 // Send partial results to the UI after accumulating this many items.
 const SEARCH_BATCH_SIZE: usize = 48;
+
 impl App {
     /// Spawn a background fetch task that sends the result (or an error) back as an action.
     fn spawn_fetch<Fut>(&self, fut: Fut, on_ok: fn(Vec<DiscoveryItem>) -> Action)
@@ -59,77 +61,45 @@ impl App {
     }
 
     pub(super) fn search_by_genre(&mut self, genre_id: String) -> anyhow::Result<()> {
-        self.search_id += 1;
-        let sid = self.search_id;
-        self.discovery_list.set_items(vec![]);
-        self.discovery_list.set_loading(true);
-        self.viewing_genre_results = true;
-
-        // Remote paginated search
-        let tx = self.action_tx.clone();
         let client = self.nts_client.clone();
-        tokio::spawn(async move {
-            let mut buf = Vec::new();
-            let mut offset = 0u64;
-
-            while offset <= SEARCH_MAX_OFFSET {
-                match client
-                    .search_episodes(&genre_id, offset, SEARCH_PAGE_SIZE)
-                    .await
-                {
-                    Ok(items) => {
-                        let got = items.len();
-                        buf.extend(items);
-                        if (got as u64) < SEARCH_PAGE_SIZE {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-                offset += SEARCH_PAGE_SIZE;
-
-                if buf.len() >= SEARCH_BATCH_SIZE || offset > SEARCH_MAX_OFFSET {
-                    let batch = std::mem::take(&mut buf);
-                    let done = offset > SEARCH_MAX_OFFSET;
-                    tx.send(Action::SearchResultsPartial {
-                        search_id: sid,
-                        items: batch,
-                        done,
-                    })
-                    .ok();
-                }
-            }
-
-            // Flush remaining
-            tx.send(Action::SearchResultsPartial {
-                search_id: sid,
-                items: buf,
-                done: true,
-            })
-            .ok();
-        });
-
-        Ok(())
+        self.viewing_genre_results = true;
+        self.spawn_paginated_search(move |offset, limit| {
+            let client = client.clone();
+            let genre_id = genre_id.clone();
+            Box::pin(async move { client.search_episodes(&genre_id, offset, limit).await })
+        })
     }
 
     pub(super) fn search_by_query(&mut self, query: String) -> anyhow::Result<()> {
+        let client = self.nts_client.clone();
+        self.viewing_query_results = true;
+        self.spawn_paginated_search(move |offset, limit| {
+            let client = client.clone();
+            let query = query.clone();
+            Box::pin(async move { client.search_episodes_by_query(&query, offset, limit).await })
+        })
+    }
+
+    /// Shared paginated search: fetches pages in a background task, sending
+    /// partial results back to the UI as they accumulate.
+    fn spawn_paginated_search<F>(&mut self, make_page: F) -> anyhow::Result<()>
+    where
+        F: Fn(u64, u64) -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<DiscoveryItem>>> + Send>>
+            + Send
+            + 'static,
+    {
         self.search_id += 1;
         let sid = self.search_id;
         self.discovery_list.set_items(vec![]);
         self.discovery_list.set_loading(true);
-        self.viewing_query_results = true;
 
         let tx = self.action_tx.clone();
-        let client = self.nts_client.clone();
         tokio::spawn(async move {
             let mut buf = Vec::new();
             let mut offset = 0u64;
 
             while offset <= SEARCH_MAX_OFFSET {
-                match client
-                    .search_episodes_by_query(&query, offset, SEARCH_PAGE_SIZE)
-                    .await
-                {
+                match make_page(offset, SEARCH_PAGE_SIZE).await {
                     Ok(items) => {
                         let got = items.len();
                         buf.extend(items);

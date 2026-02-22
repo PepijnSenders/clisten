@@ -1,9 +1,12 @@
 // File-based logging via tracing. Writes to ~/.local/share/clisten/clisten.log.
 
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-pub fn init() -> anyhow::Result<()> {
+/// Initialize file logging. The returned guard must be held for the program's
+/// lifetime — dropping it flushes and closes the log file writer.
+pub fn init() -> anyhow::Result<WorkerGuard> {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("clisten");
@@ -17,7 +20,5 @@ pub fn init() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env().add_directive("clisten=debug".parse()?))
         .init();
 
-    // The guard must outlive the program — leak it so the file writer stays open.
-    std::mem::forget(guard);
-    Ok(())
+    Ok(guard)
 }

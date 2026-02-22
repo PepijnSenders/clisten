@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod logging;
 mod player;
+mod theme;
 mod tui;
 mod ui;
 
@@ -37,9 +38,13 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("Warning: failed to load config: {e}. Using defaults.");
         Config::default()
     });
-    logging::init()?;
+    let _log_guard = logging::init()?;
 
+    let pending = config.pending_onboarding_screens();
     let mut app = app::App::new(config)?;
+    if !pending.is_empty() {
+        app.onboarding.activate(pending);
+    }
     app.run().await?;
 
     Ok(())

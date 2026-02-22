@@ -2,25 +2,34 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
     Frame,
 };
 
-pub fn draw(frame: &mut Frame, area: Rect, items: &[(String, String)], current: Option<usize>) {
+use crate::theme::Theme;
+
+/// Render the playback queue as a styled list with key hints at the bottom.
+pub fn draw(
+    frame: &mut Frame,
+    area: Rect,
+    items: &[(String, String)],
+    current: Option<usize>,
+    theme: &Theme,
+) {
     // Horizontal separator
     let buf = frame.buffer_mut();
     for x in area.x..area.x + area.width {
         if let Some(cell) = buf.cell_mut((x, area.y)) {
             cell.set_char('─');
-            cell.set_fg(Color::DarkGray);
+            cell.set_fg(theme.border);
         }
     }
 
     let title = Line::from(Span::styled(
         format!(" Queue ({})", items.len()),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme.text_dim),
     ));
     let title_area = Rect {
         x: area.x,
@@ -45,15 +54,15 @@ pub fn draw(frame: &mut Frame, area: Rect, items: &[(String, String)], current: 
             let marker = if is_current { "▶ " } else { "  " };
             let style = if is_current {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.primary)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(theme.text)
             };
             let sub_style = if is_current {
-                Style::default().fg(Color::Cyan)
+                Style::default().fg(theme.primary)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(theme.text_dim)
             };
             Line::from(vec![
                 Span::styled(marker, style),
@@ -82,17 +91,17 @@ pub fn draw(frame: &mut Frame, area: Rect, items: &[(String, String)], current: 
             height: 1,
         };
         let hints = Line::from(vec![
-            Span::styled("d", Style::default().fg(Color::White)),
-            Span::styled(" Remove ", Style::default().fg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(" c", Style::default().fg(Color::White)),
-            Span::styled(" Clear ", Style::default().fg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(" n", Style::default().fg(Color::White)),
-            Span::styled(" Next ", Style::default().fg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(" p", Style::default().fg(Color::White)),
-            Span::styled(" Prev", Style::default().fg(Color::DarkGray)),
+            Span::styled("d", Style::default().fg(theme.text)),
+            Span::styled(" Remove ", Style::default().fg(theme.text_dim)),
+            Span::styled("│", Style::default().fg(theme.border)),
+            Span::styled(" c", Style::default().fg(theme.text)),
+            Span::styled(" Clear ", Style::default().fg(theme.text_dim)),
+            Span::styled("│", Style::default().fg(theme.border)),
+            Span::styled(" n", Style::default().fg(theme.text)),
+            Span::styled(" Next ", Style::default().fg(theme.text_dim)),
+            Span::styled("│", Style::default().fg(theme.border)),
+            Span::styled(" p", Style::default().fg(theme.text)),
+            Span::styled(" Prev", Style::default().fg(theme.text_dim)),
         ]);
         frame.render_widget(Paragraph::new(hints), hint_area);
     }

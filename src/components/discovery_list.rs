@@ -14,7 +14,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::action::Action;
 use crate::api::models::DiscoveryItem;
 use crate::components::{Component, BRAILLE_SPINNER};
+use crate::theme::Theme;
 
+/// Scrollable, filterable list of discovery items (left panel).
 #[derive(Default)]
 pub struct DiscoveryList {
     action_tx: Option<UnboundedSender<Action>>,
@@ -172,13 +174,16 @@ impl Component for DiscoveryList {
         Ok(vec![])
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         if self.loading {
             let idx = (self.frame_count / 3) as usize % BRAILLE_SPINNER.len();
             let spinner = BRAILLE_SPINNER[idx];
             let paragraph = Paragraph::new(Line::from(vec![
-                Span::styled(format!("  {} ", spinner), Style::default().fg(Color::Cyan)),
-                Span::styled("Searching...", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("  {} ", spinner),
+                    Style::default().fg(theme.primary),
+                ),
+                Span::styled("Searching...", Style::default().fg(theme.text_dim)),
             ]));
             frame.render_widget(paragraph, area);
             return;
@@ -195,33 +200,33 @@ impl Component for DiscoveryList {
 
                 let title_style = if is_selected {
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.primary)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(theme.text)
                 };
                 let subtitle_color = if is_selected {
-                    Color::Cyan
+                    theme.primary
                 } else if i % 2 == 0 {
-                    Color::DarkGray
+                    theme.text_dim
                 } else {
                     Color::Gray
                 };
 
                 let bg = if is_selected {
-                    Some(Color::Rgb(30, 30, 40))
+                    Some(theme.selection_bg)
                 } else {
                     None
                 };
 
                 let line_spans = vec![
-                    Span::styled(num, Style::default().fg(Color::DarkGray)),
+                    Span::styled(num, Style::default().fg(theme.text_dim)),
                     Span::styled(item.title(), title_style),
                 ];
 
                 let title_line = Line::from(line_spans);
                 let sub_line = Line::from(vec![
-                    Span::styled("   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("   ", Style::default().fg(theme.text_dim)),
                     Span::styled(item.subtitle(), Style::default().fg(subtitle_color)),
                 ]);
 
@@ -236,7 +241,7 @@ impl Component for DiscoveryList {
         let list = List::new(items)
             .highlight_style(
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.primary)
                     .add_modifier(Modifier::BOLD),
             )
             .highlight_symbol("▌");
