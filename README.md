@@ -11,8 +11,7 @@ Built with Rust, [ratatui](https://github.com/ratatui/ratatui), and [mpv](https:
 - **Live streams** — tune into NTS channels 1 & 2 in real-time
 - **Curated picks** — browse NTS editorial selections
 - **Genre search** — explore 120+ genres, server-side filtered
-- **Queue management** — build playlists, reorder, play next
-- **Favorites & history** — saved locally in SQLite
+- **Queue management** — build playlists, reorder, play next; persisted across sessions
 - **Direct URL playback** — paste any stream URL to play
 - **mpv backend** — robust audio playback via IPC
 
