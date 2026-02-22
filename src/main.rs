@@ -26,6 +26,11 @@ fn check_dependencies() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("clisten {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     check_dependencies();
 
     let config = Config::load().unwrap_or_else(|e| {

@@ -35,6 +35,7 @@ test-results/
 skills-lock.json
 
 # Internal development files
+CLAUDE.md
 spec/
 tests/e2e/
 PLAN.md

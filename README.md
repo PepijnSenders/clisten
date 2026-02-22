@@ -25,7 +25,11 @@ Built with Rust, [ratatui](https://github.com/ratatui/ratatui), and [mpv](https:
 
 ## Install
 
-Download a prebuilt binary from the [latest release](https://github.com/PepijnSenders/clisten/releases/latest), or build from source:
+```sh
+brew install pepijnsenders/tap/clisten
+```
+
+Or download a prebuilt binary from the [latest release](https://github.com/PepijnSenders/clisten/releases/latest), or build from source:
 
 ```sh
 git clone https://github.com/PepijnSenders/clisten.git
@@ -81,6 +85,16 @@ cargo test           # run all unit + integration tests
 cargo clippy         # lint
 cargo fmt --check    # check formatting
 ```
+
+## Releasing
+
+1. **Bump the version** in `Cargo.toml` and commit.
+2. **Create a GitHub release** with a `v`-prefixed tag (e.g. `v0.2.0`):
+   ```sh
+   gh release create v0.2.0 --title "v0.2.0" --generate-notes
+   ```
+   The release workflow builds binaries for macOS (Intel + ARM) and Linux, packages them as `.tar.gz` archives, and uploads them as release assets. It then automatically updates the Homebrew formula in `pepijnsenders/homebrew-tap` with the new version and SHA256 hashes.
+3. **Verify**: `brew update && brew upgrade clisten` (or `brew install pepijnsenders/tap/clisten` for first-time users).
 
 ## License
 
