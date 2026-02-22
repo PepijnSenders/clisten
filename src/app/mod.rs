@@ -157,7 +157,25 @@ impl App {
             // Playback
             Action::PlayItem(ref item) => self.play_item(item.clone()).await?,
             Action::TogglePlayPause => {
-                let _ = self.player.toggle_pause().await;
+                if !self.now_playing.is_playing() {
+                    if let Some(track) = self.queue.current() {
+                        let url = track.url.clone();
+                        let title = track.item.display_title();
+                        let item = track.item.clone();
+                        self.play_controls
+                            .set_queue_info(self.queue.current_index(), self.queue.len());
+                        self.now_playing.set_buffering(item);
+                        self.play_controls.set_buffering(true);
+                        self.sync_queue_to_now_playing();
+                        if let Err(e) = self.player.play(&url).await {
+                            self.action_tx.send(Action::ShowError(e.to_string()))?;
+                        } else {
+                            self.action_tx.send(Action::PlaybackStarted { title })?;
+                        }
+                    }
+                } else {
+                    let _ = self.player.toggle_pause().await;
+                }
             }
             Action::Stop => {
                 let _ = self.player.stop().await;
