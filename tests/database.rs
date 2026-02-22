@@ -1,7 +1,8 @@
-// SQLite database: favorites, history, record-to-DiscoveryItem conversion.
+// SQLite database: queue persistence tests.
 
 use clisten::api::models::DiscoveryItem;
 use clisten::db::Database;
+use clisten::player::queue::QueueItem;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,209 +34,113 @@ fn test_database_open_creates_file() {
     assert!(path.exists());
 }
 
+// ── Queue persistence ────────────────────────────────────────────────────────
+
 #[test]
-fn test_database_add_favorite() {
+fn test_save_and_load_queue() {
     let (db, _dir) = open_temp_db();
-    let item = make_episode("Test Show", "test-show-ep1");
-    db.add_favorite(&item).expect("add_favorite");
-    assert!(db
-        .is_favorite("nts:episode:test-show:test-show-ep1")
-        .expect("is_favorite"));
+    let items = vec![
+        QueueItem {
+            item: make_episode("Episode 1", "ep-1"),
+            url: "https://example.com/1".to_string(),
+            stream_metadata: None,
+        },
+        QueueItem {
+            item: make_episode("Episode 2", "ep-2"),
+            url: "https://example.com/2".to_string(),
+            stream_metadata: None,
+        },
+    ];
+
+    db.save_queue(&items, Some(1)).expect("save_queue");
+
+    let (loaded, current_index) = db.load_queue().expect("load_queue");
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded[0].item.title(), "Episode 1");
+    assert_eq!(loaded[0].url, "https://example.com/1");
+    assert_eq!(loaded[1].item.title(), "Episode 2");
+    assert_eq!(loaded[1].url, "https://example.com/2");
+    assert_eq!(current_index, Some(1));
 }
 
 #[test]
-fn test_database_remove_favorite() {
+fn test_save_empty_queue() {
     let (db, _dir) = open_temp_db();
-    let item = make_episode("Test Show", "test-show-ep1");
-    db.add_favorite(&item).expect("add_favorite");
-    assert!(db
-        .is_favorite("nts:episode:test-show:test-show-ep1")
-        .expect("is_favorite"));
-    db.remove_favorite("nts:episode:test-show:test-show-ep1")
-        .expect("remove_favorite");
-    assert!(!db
-        .is_favorite("nts:episode:test-show:test-show-ep1")
-        .expect("is_favorite"));
+
+    // Save non-empty first
+    let items = vec![QueueItem {
+        item: make_episode("Episode 1", "ep-1"),
+        url: "https://example.com/1".to_string(),
+        stream_metadata: None,
+    }];
+    db.save_queue(&items, Some(0)).expect("save_queue");
+
+    // Now save empty
+    db.save_queue(&[], None).expect("save empty queue");
+
+    let (loaded, current_index) = db.load_queue().expect("load_queue");
+    assert_eq!(loaded.len(), 0);
+    assert_eq!(current_index, None);
 }
 
 #[test]
-fn test_database_add_duplicate_favorite() {
+fn test_load_queue_empty_db() {
     let (db, _dir) = open_temp_db();
-    let item = make_episode("Test Show", "test-show-ep1");
-    // First insert
-    db.add_favorite(&item).expect("first add");
-    // Second insert should be silently ignored (INSERT OR IGNORE)
-    db.add_favorite(&item).expect("duplicate add");
-    let favorites = db.list_favorites(None, 100, 0).expect("list");
-    assert_eq!(favorites.len(), 1, "duplicate should be ignored");
+
+    let (loaded, current_index) = db.load_queue().expect("load_queue");
+    assert_eq!(loaded.len(), 0);
+    assert_eq!(current_index, None);
 }
 
 #[test]
-fn test_database_list_favorites() {
+fn test_save_queue_overwrites_previous() {
     let (db, _dir) = open_temp_db();
-    let ep1 = make_episode("Episode One", "ep-one");
-    let ep2 = make_episode("Episode Two", "ep-two");
-    db.add_favorite(&ep1).expect("add ep1");
-    db.add_favorite(&ep2).expect("add ep2");
-    let favorites = db.list_favorites(None, 100, 0).expect("list");
-    assert_eq!(favorites.len(), 2);
-    // Both titles present (order by created_at DESC; within same second rowid DESC)
-    let titles: Vec<&str> = favorites.iter().map(|f| f.title.as_str()).collect();
-    assert!(titles.contains(&"Episode One"));
-    assert!(titles.contains(&"Episode Two"));
+
+    let items1 = vec![
+        QueueItem {
+            item: make_episode("Episode A", "ep-a"),
+            url: "https://example.com/a".to_string(),
+            stream_metadata: None,
+        },
+        QueueItem {
+            item: make_episode("Episode B", "ep-b"),
+            url: "https://example.com/b".to_string(),
+            stream_metadata: None,
+        },
+    ];
+    db.save_queue(&items1, Some(0)).expect("save_queue 1");
+
+    let items2 = vec![QueueItem {
+        item: make_episode("Episode C", "ep-c"),
+        url: "https://example.com/c".to_string(),
+        stream_metadata: None,
+    }];
+    db.save_queue(&items2, Some(0)).expect("save_queue 2");
+
+    let (loaded, current_index) = db.load_queue().expect("load_queue");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].item.title(), "Episode C");
+    assert_eq!(current_index, Some(0));
 }
 
 #[test]
-fn test_database_list_favorites_by_source() {
+fn test_save_queue_with_direct_url() {
     let (db, _dir) = open_temp_db();
-    let nts_item = make_episode("NTS Episode", "nts-ep");
-    let direct_item = DiscoveryItem::DirectUrl {
+    let items = vec![QueueItem {
+        item: DiscoveryItem::DirectUrl {
+            url: "https://youtube.com/watch?v=123".to_string(),
+            title: Some("My Video".to_string()),
+        },
         url: "https://youtube.com/watch?v=123".to_string(),
-        title: Some("My Video".to_string()),
-    };
-    db.add_favorite(&nts_item).expect("add nts");
-    db.add_favorite(&direct_item).expect("add direct");
+        stream_metadata: None,
+    }];
 
-    let nts_only = db.list_favorites(Some("nts"), 100, 0).expect("list nts");
-    assert_eq!(nts_only.len(), 1);
-    assert_eq!(nts_only[0].source, "nts");
+    db.save_queue(&items, Some(0)).expect("save_queue");
 
-    let direct_only = db
-        .list_favorites(Some("direct"), 100, 0)
-        .expect("list direct");
-    assert_eq!(direct_only.len(), 1);
-    assert_eq!(direct_only[0].source, "direct");
-
-    let all = db.list_favorites(None, 100, 0).expect("list all");
-    assert_eq!(all.len(), 2);
-}
-
-#[test]
-fn test_database_add_to_history() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("History Show", "history-ep1");
-    db.add_to_history(&item).expect("add_to_history");
-    let history = db.list_history(100, 0).expect("list_history");
-    assert_eq!(history.len(), 1);
-    assert_eq!(history[0].title, "History Show");
-}
-
-#[test]
-fn test_database_list_history() {
-    let (db, _dir) = open_temp_db();
-    let ep1 = make_episode("First Episode", "ep-first");
-    let ep2 = make_episode("Second Episode", "ep-second");
-    db.add_to_history(&ep1).expect("add ep1");
-    db.add_to_history(&ep2).expect("add ep2");
-    let history = db.list_history(100, 0).expect("list_history");
-    assert_eq!(history.len(), 2);
-    // Both titles present (order by played_at DESC)
-    let titles: Vec<&str> = history.iter().map(|h| h.title.as_str()).collect();
-    assert!(titles.contains(&"First Episode"));
-    assert!(titles.contains(&"Second Episode"));
-}
-
-#[test]
-fn test_database_clear_history() {
-    let (db, _dir) = open_temp_db();
-    db.add_to_history(&make_episode("Show A", "ep-a"))
-        .expect("add");
-    db.add_to_history(&make_episode("Show B", "ep-b"))
-        .expect("add");
-    let before = db.list_history(100, 0).expect("list");
-    assert_eq!(before.len(), 2);
-    db.clear_history().expect("clear");
-    let after = db.list_history(100, 0).expect("list");
-    assert_eq!(after.len(), 0);
-}
-
-#[test]
-fn test_database_history_allows_duplicates() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("Repeated Show", "repeated-ep");
-    db.add_to_history(&item).expect("first play");
-    db.add_to_history(&item).expect("second play");
-    let history = db.list_history(100, 0).expect("list");
-    // History allows duplicates (unlike favorites which uses INSERT OR IGNORE)
-    assert_eq!(history.len(), 2);
-}
-
-// ── Favorites integration ────────────────────────────────────────────────────
-
-#[test]
-fn test_toggle_favorite_adds() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("My Favorite Show", "fav-ep1");
-    let key = item.favorite_key();
-
-    // Not favorited initially
-    assert!(!db.is_favorite(&key).expect("is_favorite"));
-
-    // Add it
-    db.add_favorite(&item).expect("add_favorite");
-
-    // Now it's favorited
-    assert!(db.is_favorite(&key).expect("is_favorite"));
-
-    // Also in list_favorites
-    let favorites = db.list_favorites(None, 100, 0).expect("list_favorites");
-    assert_eq!(favorites.len(), 1);
-    assert_eq!(favorites[0].title, "My Favorite Show");
-    assert_eq!(favorites[0].source, "nts");
-}
-
-#[test]
-fn test_toggle_favorite_removes() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("Removable Show", "remove-ep1");
-    let key = item.favorite_key();
-
-    // Add then remove
-    db.add_favorite(&item).expect("add_favorite");
-    assert!(db.is_favorite(&key).expect("is_favorite"));
-
-    db.remove_favorite(&key).expect("remove_favorite");
-    assert!(!db.is_favorite(&key).expect("is_favorite"));
-
-    // List should be empty
-    let favorites = db.list_favorites(None, 100, 0).expect("list_favorites");
-    assert_eq!(favorites.len(), 0);
-}
-
-#[test]
-fn test_favorite_record_to_discovery_item() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("Discovery Item Show", "discovery-ep1");
-    db.add_favorite(&item).expect("add_favorite");
-
-    let records = db.list_favorites(None, 100, 0).expect("list_favorites");
-    assert_eq!(records.len(), 1);
-
-    // Convert back to DiscoveryItem
-    let discovery = records[0].to_discovery_item();
-    assert_eq!(discovery.title(), "Discovery Item Show");
-    assert!(matches!(
-        discovery,
-        clisten::api::models::DiscoveryItem::NtsEpisode { .. }
-    ));
-}
-
-#[test]
-fn test_history_record_to_discovery_item() {
-    let (db, _dir) = open_temp_db();
-    let item = make_episode("History Item Show", "history-ep1");
-    db.add_to_history(&item).expect("add_to_history");
-
-    let records = db.list_history(100, 0).expect("list_history");
-    assert_eq!(records.len(), 1);
-
-    // Convert back to DiscoveryItem
-    let discovery = records[0].to_discovery_item();
-    assert_eq!(discovery.title(), "History Item Show");
-    assert!(matches!(
-        discovery,
-        clisten::api::models::DiscoveryItem::NtsEpisode { .. }
-    ));
+    let (loaded, _) = db.load_queue().expect("load_queue");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].item.title(), "My Video");
+    assert!(matches!(loaded[0].item, DiscoveryItem::DirectUrl { .. }));
 }
 
 // ── Number keys for sub-tabs ─────────────────────────────────────────────────
@@ -307,23 +212,6 @@ fn test_nts_genre_discovery_item() {
     assert_eq!(genre.title(), "Ambient");
     assert_eq!(genre.subtitle(), "Genre");
     assert_eq!(genre.playback_url(), None);
-    assert_eq!(genre.favorite_key(), "genre:ambient");
-}
-
-#[test]
-fn test_nts_genre_special_ids() {
-    let favorites = DiscoveryItem::NtsGenre {
-        name: "My Favorites (5)".to_string(),
-        genre_id: "_favorites".to_string(),
-    };
-    assert_eq!(favorites.title(), "My Favorites (5)");
-    assert_eq!(favorites.favorite_key(), "genre:_favorites");
-
-    let history = DiscoveryItem::NtsGenre {
-        name: "History (10)".to_string(),
-        genre_id: "_history".to_string(),
-    };
-    assert_eq!(history.title(), "History (10)");
 }
 
 // ── append_items tests ────────────────────────────────────────────────────────

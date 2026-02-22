@@ -31,9 +31,9 @@ impl App {
             self.action_tx.send(Action::PlaybackStarted {
                 title: item.display_title(),
             })?;
-            self.action_tx.send(Action::AddToHistory(item))?;
             self.sync_queue_to_now_playing();
         }
+        self.persist_queue();
         Ok(())
     }
 
@@ -54,6 +54,8 @@ impl App {
         self.now_playing.set_buffering(item);
         self.play_controls.set_buffering(true);
         self.sync_queue_to_now_playing();
+
+        self.persist_queue();
 
         if let Err(e) = self.player.play(&url).await {
             self.action_tx.send(Action::ShowError(e.to_string()))?;
@@ -86,6 +88,7 @@ impl App {
         }
         self.sync_play_controls();
         self.sync_queue_to_now_playing();
+        self.persist_queue();
     }
 
     pub(super) fn sync_play_controls(&mut self) {

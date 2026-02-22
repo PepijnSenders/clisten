@@ -9,7 +9,6 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
-use std::collections::HashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
@@ -24,7 +23,6 @@ pub struct DiscoveryList {
     /// Currently visible items (filtered or full)
     items: Vec<DiscoveryItem>,
     state: ListState,
-    favorites: HashSet<String>,
     filter_query: Option<String>,
     loading: bool,
     frame_count: u64,
@@ -107,10 +105,6 @@ impl DiscoveryList {
 
     pub fn selected_item(&self) -> Option<&DiscoveryItem> {
         self.state.selected().and_then(|i| self.items.get(i))
-    }
-
-    pub fn set_favorites(&mut self, favorites: HashSet<String>) {
-        self.favorites = favorites;
     }
 
     pub fn next(&mut self) {
@@ -196,8 +190,6 @@ impl Component for DiscoveryList {
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let is_fav = self.favorites.contains(&item.favorite_key());
-                let heart = if is_fav { " ♥" } else { "" };
                 let is_selected = selected == Some(i);
                 let num = format!("{:02} ", i + 1);
 
@@ -225,7 +217,6 @@ impl Component for DiscoveryList {
                 let line_spans = vec![
                     Span::styled(num, Style::default().fg(Color::DarkGray)),
                     Span::styled(item.title(), title_style),
-                    Span::styled(heart, Style::default().fg(Color::Red)),
                 ];
 
                 let title_line = Line::from(line_spans);

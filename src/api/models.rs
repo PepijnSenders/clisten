@@ -5,7 +5,7 @@
 // serde compatibility and are read in tests but not in production code.
 #![allow(dead_code)]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Genre {
@@ -100,7 +100,7 @@ const NTS_STREAM_2: &str = "https://stream-relay-geo.ntslive.net/stream2";
 
 /// Unified type for everything that can appear in the discovery list.
 /// Covers live NTS channels, archived episodes, direct URLs, and genre entries.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DiscoveryItem {
     NtsLiveChannel {
         channel: u8,
@@ -207,18 +207,4 @@ impl DiscoveryItem {
         (title, subtitle)
     }
 
-    pub fn favorite_key(&self) -> String {
-        match self {
-            Self::NtsLiveChannel { channel, .. } => format!("nts:live:{}", channel),
-            Self::NtsEpisode {
-                show_alias,
-                episode_alias,
-                ..
-            } => {
-                format!("nts:episode:{}:{}", show_alias, episode_alias)
-            }
-            Self::DirectUrl { url, .. } => format!("direct:{}", url),
-            Self::NtsGenre { genre_id, .. } => format!("genre:{}", genre_id),
-        }
-    }
 }

@@ -37,9 +37,6 @@ pub enum Action {
     AddToQueueNext(DiscoveryItem),
     ClearQueue,
 
-    ToggleFavorite,
-    AddToHistory(DiscoveryItem),
-
     LoadNtsLive,
     NtsLiveLoaded(Vec<DiscoveryItem>),
     LoadNtsPicks,

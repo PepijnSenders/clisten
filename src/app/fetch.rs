@@ -13,9 +13,6 @@ const SEARCH_PAGE_SIZE: u64 = 12;
 const SEARCH_MAX_OFFSET: u64 = 240;
 // Send partial results to the UI after accumulating this many items.
 const SEARCH_BATCH_SIZE: usize = 48;
-// Cap for local DB queries (favorites/history).
-const LOCAL_QUERY_LIMIT: u32 = 1000;
-
 impl App {
     /// Spawn a background fetch task that sends the result (or an error) back as an action.
     fn spawn_fetch<Fut>(&self, fut: Fut, on_ok: fn(Vec<DiscoveryItem>) -> Action)
@@ -48,18 +45,7 @@ impl App {
     }
 
     pub(super) fn load_genres(&mut self) -> anyhow::Result<()> {
-        let fav_count = self.db.list_favorites(None, LOCAL_QUERY_LIMIT, 0)?.len();
-        let hist_count = self.db.list_history(LOCAL_QUERY_LIMIT, 0)?.len();
-
-        let mut items: Vec<DiscoveryItem> = Vec::with_capacity(TOP_GENRES.len() + 2);
-        items.push(DiscoveryItem::NtsGenre {
-            name: format!("My Favorites ({})", fav_count),
-            genre_id: "_favorites".to_string(),
-        });
-        items.push(DiscoveryItem::NtsGenre {
-            name: format!("History ({})", hist_count),
-            genre_id: "_history".to_string(),
-        });
+        let mut items: Vec<DiscoveryItem> = Vec::with_capacity(TOP_GENRES.len());
         for &(id, name) in TOP_GENRES {
             items.push(DiscoveryItem::NtsGenre {
                 name: name.to_string(),
@@ -78,33 +64,6 @@ impl App {
         self.discovery_list.set_items(vec![]);
         self.discovery_list.set_loading(true);
         self.viewing_genre_results = true;
-
-        // Local-DB genres: favorites and history
-        let local_items = match genre_id.as_str() {
-            "_favorites" => Some(
-                self.db
-                    .list_favorites(None, LOCAL_QUERY_LIMIT, 0)?
-                    .iter()
-                    .map(|r| r.to_discovery_item())
-                    .collect(),
-            ),
-            "_history" => Some(
-                self.db
-                    .list_history(LOCAL_QUERY_LIMIT, 0)?
-                    .iter()
-                    .map(|r| r.to_discovery_item())
-                    .collect(),
-            ),
-            _ => None,
-        };
-        if let Some(items) = local_items {
-            self.action_tx.send(Action::SearchResultsPartial {
-                search_id: sid,
-                items,
-                done: true,
-            })?;
-            return Ok(());
-        }
 
         // Remote paginated search
         let tx = self.action_tx.clone();

@@ -278,35 +278,6 @@ fn test_discovery_item_playback_url() {
     );
 }
 
-#[test]
-fn test_discovery_item_favorite_key() {
-    let live = DiscoveryItem::NtsLiveChannel {
-        channel: 1,
-        show_name: "Show".to_string(),
-        genres: vec![],
-    };
-    assert_eq!(live.favorite_key(), "nts:live:1");
-
-    let episode = DiscoveryItem::NtsEpisode {
-        name: "Episode".to_string(),
-        show_alias: "my-show".to_string(),
-        episode_alias: "my-ep-2026".to_string(),
-        genres: vec![],
-        location: None,
-        audio_url: None,
-    };
-    assert_eq!(episode.favorite_key(), "nts:episode:my-show:my-ep-2026");
-
-    let direct = DiscoveryItem::DirectUrl {
-        url: "https://youtube.com/watch?v=123".to_string(),
-        title: None,
-    };
-    assert_eq!(
-        direct.favorite_key(),
-        "direct:https://youtube.com/watch?v=123"
-    );
-}
-
 // ── NTS API Client (integration) ────────────────────────────────────────────
 
 #[tokio::test]
