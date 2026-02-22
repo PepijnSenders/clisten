@@ -20,7 +20,6 @@ Built with Rust, [ratatui](https://github.com/ratatui/ratatui), and [mpv](https:
 | Dependency | Purpose | Install |
 |---|---|---|
 | [mpv](https://mpv.io) | Audio playback | `brew install mpv` |
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | URL resolution (used by mpv) | `brew install yt-dlp` |
 
 ## Install
 
