@@ -39,11 +39,6 @@ impl Database {
     }
 
     fn run_migrations(&self) -> anyhow::Result<()> {
-        // Drop legacy tables from older versions
-        self.conn.execute_batch(
-            "DROP TABLE IF EXISTS favorites;
-             DROP TABLE IF EXISTS history;",
-        )?;
         let sql = include_str!("../migrations/001_init.sql");
         self.conn.execute_batch(sql)?;
         Ok(())
