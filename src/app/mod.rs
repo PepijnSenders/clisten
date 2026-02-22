@@ -49,6 +49,8 @@ pub struct App {
     pub(crate) search_id: u64,
     /// True when viewing genre search results (not the genre list itself).
     pub(crate) viewing_genre_results: bool,
+    /// True when viewing text query search results.
+    pub(crate) viewing_query_results: bool,
 }
 
 impl App {
@@ -106,6 +108,7 @@ impl App {
             error_message: None,
             search_id: 0,
             viewing_genre_results: false,
+            viewing_query_results: false,
         })
     }
 
@@ -207,6 +210,7 @@ impl App {
             Action::GenresLoaded(items) => {
                 self.discovery_list.set_items(items);
                 self.viewing_genre_results = false;
+                self.viewing_query_results = false;
             }
 
             // Genre search
@@ -232,15 +236,16 @@ impl App {
             // Search / filter
             Action::SearchSubmit => {
                 let query = self.search_bar.input().to_string();
-                self.action_tx.send(if query.is_empty() {
-                    Action::ClearFilter
-                } else {
-                    Action::FilterList(query)
-                })?;
+                if !query.is_empty() {
+                    // Switch to Search tab if not already there
+                    if self.nts_tab.active_sub != NtsSubTab::Search {
+                        self.nts_tab.switch_sub_tab(2);
+                    }
+                    self.action_tx
+                        .send(Action::SearchByQuery { query })?;
+                }
             }
-            Action::FilterList(query) => self.discovery_list.set_filter(Some(query)),
-            Action::ClearFilter => self.discovery_list.set_filter(None),
-
+            Action::SearchByQuery { query } => self.search_by_query(query)?,
             // Direct play modal
             Action::OpenDirectPlay => self.direct_play_modal.show(),
             Action::CloseDirectPlay => self.direct_play_modal.hide(),
@@ -290,7 +295,10 @@ impl App {
 
             // Navigation
             Action::Back => {
-                if self.nts_tab.active_sub == NtsSubTab::Search && self.viewing_genre_results {
+                if self.nts_tab.active_sub == NtsSubTab::Search
+                    && (self.viewing_genre_results || self.viewing_query_results)
+                {
+                    self.viewing_query_results = false;
                     self.nts_tab.mark_unloaded(NtsSubTab::Search);
                     self.action_tx.send(Action::LoadGenres)?;
                 } else {
@@ -321,6 +329,7 @@ impl App {
         self.discovery_list.set_items(vec![]);
         self.discovery_list.set_loading(true);
         self.viewing_genre_results = false;
+        self.viewing_query_results = false;
         self.discovery_list.set_filter(None);
         self.search_bar.update(&Action::Back)?;
 

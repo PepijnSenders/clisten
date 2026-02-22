@@ -37,9 +37,9 @@ impl App {
             _ => {}
         }
 
-        // In search mode, forward everything else to the search bar
-        if self.search_bar.is_focused() {
-            self.search_bar.handle_key_event(key)?;
+        // In search mode, forward to the search bar; if it didn't consume the
+        // key (e.g. arrow keys), fall through to normal-mode bindings.
+        if self.search_bar.is_focused() && self.search_bar.handle_key_event(key)? {
             return Ok(());
         }
 

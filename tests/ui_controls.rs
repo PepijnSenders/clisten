@@ -90,14 +90,6 @@ fn test_discovery_list_clear_filter() {
     );
 }
 
-#[test]
-fn test_nts_search_submit_filters() {
-    let action = Action::FilterList("jazz".to_string());
-    assert!(matches!(action, Action::FilterList(_)));
-    let action = Action::ClearFilter;
-    assert!(matches!(action, Action::ClearFilter));
-}
-
 // ── Search bar UX ────────────────────────────────────────────────────────────
 
 #[test]
@@ -120,7 +112,7 @@ fn test_search_bar_clears_on_submit() {
     assert_eq!(bar.input(), "jaz");
 
     bar.update(&Action::SearchSubmit).unwrap();
-    assert_eq!(bar.input(), "", "Search bar should clear on submit");
+    assert_eq!(bar.input(), "jaz", "Search bar should preserve input on submit");
     assert!(!bar.is_focused(), "Search bar should unfocus on submit");
 }
 

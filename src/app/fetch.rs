@@ -111,4 +111,57 @@ impl App {
 
         Ok(())
     }
+
+    pub(super) fn search_by_query(&mut self, query: String) -> anyhow::Result<()> {
+        self.search_id += 1;
+        let sid = self.search_id;
+        self.discovery_list.set_items(vec![]);
+        self.discovery_list.set_loading(true);
+        self.viewing_query_results = true;
+
+        let tx = self.action_tx.clone();
+        let client = self.nts_client.clone();
+        tokio::spawn(async move {
+            let mut buf = Vec::new();
+            let mut offset = 0u64;
+
+            while offset <= SEARCH_MAX_OFFSET {
+                match client
+                    .search_episodes_by_query(&query, offset, SEARCH_PAGE_SIZE)
+                    .await
+                {
+                    Ok(items) => {
+                        let got = items.len();
+                        buf.extend(items);
+                        if (got as u64) < SEARCH_PAGE_SIZE {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+                offset += SEARCH_PAGE_SIZE;
+
+                if buf.len() >= SEARCH_BATCH_SIZE || offset > SEARCH_MAX_OFFSET {
+                    let batch = std::mem::take(&mut buf);
+                    let done = offset > SEARCH_MAX_OFFSET;
+                    tx.send(Action::SearchResultsPartial {
+                        search_id: sid,
+                        items: batch,
+                        done,
+                    })
+                    .ok();
+                }
+            }
+
+            // Flush remaining
+            tx.send(Action::SearchResultsPartial {
+                search_id: sid,
+                items: buf,
+                done: true,
+            })
+            .ok();
+        });
+
+        Ok(())
+    }
 }
