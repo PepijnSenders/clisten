@@ -1,4 +1,4 @@
-// tests/phase2_nts_core.rs
+// NTS API deserialization, DiscoveryItem methods, mpv player, and sub-tab routing.
 
 use clisten::action::Action;
 use clisten::api::models::*;
@@ -6,7 +6,7 @@ use clisten::api::nts::NtsClient;
 use clisten::components::nts::{NtsSubTab, NtsTab};
 use clisten::player::MpvPlayer;
 
-// ── 2.1 API Serde Types ──────────────────────────────────────────────────────
+// ── API deserialization ──────────────────────────────────────────────────────
 
 #[test]
 fn test_nts_live_response_deserializes() {
@@ -74,7 +74,8 @@ fn test_nts_live_response_deserializes() {
         ]
     }"#;
 
-    let resp: NtsLiveResponse = serde_json::from_str(json).expect("should deserialize NtsLiveResponse");
+    let resp: NtsLiveResponse =
+        serde_json::from_str(json).expect("should deserialize NtsLiveResponse");
     assert_eq!(resp.results.len(), 2);
     assert_eq!(resp.results[0].channel_name, "1");
     assert_eq!(resp.results[0].now.broadcast_title, "Resident Show Name");
@@ -83,7 +84,14 @@ fn test_nts_live_response_deserializes() {
     assert!(resp.results[1].next.is_none());
 
     // Check nested detail deserialization
-    let detail = resp.results[0].now.embeds.as_ref().unwrap().details.as_ref().unwrap();
+    let detail = resp.results[0]
+        .now
+        .embeds
+        .as_ref()
+        .unwrap()
+        .details
+        .as_ref()
+        .unwrap();
     assert_eq!(detail.name, "Resident Show Name");
     assert_eq!(detail.genres.as_ref().unwrap().len(), 2);
     assert_eq!(detail.genres.as_ref().unwrap()[0].value, "Ambient");
@@ -127,22 +135,25 @@ fn test_nts_collection_response_deserializes() {
         ]
     }"#;
 
-    let resp: NtsCollectionResponse = serde_json::from_str(json).expect("should deserialize NtsCollectionResponse");
+    let resp: NtsCollectionResponse =
+        serde_json::from_str(json).expect("should deserialize NtsCollectionResponse");
     assert_eq!(resp.results.len(), 1);
     let ep = &resp.results[0];
     assert_eq!(ep.name, "Episode Title");
     assert_eq!(ep.show_alias.as_deref(), Some("show-name"));
-    assert_eq!(ep.episode_alias.as_deref(), Some("episode-title-17th-february-2026"));
+    assert_eq!(
+        ep.episode_alias.as_deref(),
+        Some("episode-title-17th-february-2026")
+    );
     assert_eq!(ep.location_long.as_deref(), Some("Berlin"));
     let genres = ep.genres.as_ref().unwrap();
     assert_eq!(genres[0].id, "ambient");
     assert_eq!(genres[0].value, "Ambient");
     let audio = ep.audio_sources.as_ref().unwrap();
     assert_eq!(audio[0].url, "https://soundcloud.com/ntslive/ep");
-    assert!(resp.metadata.is_none());
 }
 
-// ── 2.2 DiscoveryItem ────────────────────────────────────────────────────────
+// ── DiscoveryItem ────────────────────────────────────────────────────────────
 
 #[test]
 fn test_discovery_item_title() {
@@ -162,22 +173,6 @@ fn test_discovery_item_title() {
         audio_url: Some("https://soundcloud.com/test".to_string()),
     };
     assert_eq!(episode.title(), "My Episode");
-
-    let mixtape = DiscoveryItem::NtsMixtape {
-        title: "Poolside".to_string(),
-        subtitle: "Sun-pointed selections".to_string(),
-        stream_url: "https://stream-mixtape-geo.ntslive.net/mixtape4".to_string(),
-        mixtape_alias: "poolside".to_string(),
-    };
-    assert_eq!(mixtape.title(), "Poolside");
-
-    let show = DiscoveryItem::NtsShow {
-        name: "The Wire".to_string(),
-        show_alias: "the-wire".to_string(),
-        genres: vec!["Electronic".to_string()],
-        location: None,
-    };
-    assert_eq!(show.title(), "The Wire");
 
     let direct = DiscoveryItem::DirectUrl {
         url: "https://youtube.com/watch?v=123".to_string(),
@@ -221,14 +216,6 @@ fn test_discovery_item_subtitle() {
     };
     assert_eq!(episode_no_loc.subtitle(), "Jazz");
 
-    let mixtape = DiscoveryItem::NtsMixtape {
-        title: "Poolside".to_string(),
-        subtitle: "Sun-pointed selections".to_string(),
-        stream_url: "https://stream.ntslive.net/mixtape4".to_string(),
-        mixtape_alias: "poolside".to_string(),
-    };
-    assert_eq!(mixtape.subtitle(), "Sun-pointed selections");
-
     let direct = DiscoveryItem::DirectUrl {
         url: "https://youtube.com/watch?v=123".to_string(),
         title: None,
@@ -243,14 +230,20 @@ fn test_discovery_item_playback_url() {
         show_name: "Show".to_string(),
         genres: vec![],
     };
-    assert_eq!(live1.playback_url(), Some("https://stream-relay-geo.ntslive.net/stream".to_string()));
+    assert_eq!(
+        live1.playback_url(),
+        Some("https://stream-relay-geo.ntslive.net/stream".to_string())
+    );
 
     let live2 = DiscoveryItem::NtsLiveChannel {
         channel: 2,
         show_name: "Show".to_string(),
         genres: vec![],
     };
-    assert_eq!(live2.playback_url(), Some("https://stream-relay-geo.ntslive.net/stream2".to_string()));
+    assert_eq!(
+        live2.playback_url(),
+        Some("https://stream-relay-geo.ntslive.net/stream2".to_string())
+    );
 
     let episode_with_url = DiscoveryItem::NtsEpisode {
         name: "Episode".to_string(),
@@ -260,7 +253,10 @@ fn test_discovery_item_playback_url() {
         location: None,
         audio_url: Some("https://soundcloud.com/ntslive/ep".to_string()),
     };
-    assert_eq!(episode_with_url.playback_url(), Some("https://soundcloud.com/ntslive/ep".to_string()));
+    assert_eq!(
+        episode_with_url.playback_url(),
+        Some("https://soundcloud.com/ntslive/ep".to_string())
+    );
 
     let episode_no_url = DiscoveryItem::NtsEpisode {
         name: "Episode".to_string(),
@@ -272,19 +268,14 @@ fn test_discovery_item_playback_url() {
     };
     assert_eq!(episode_no_url.playback_url(), None);
 
-    let show = DiscoveryItem::NtsShow {
-        name: "Show".to_string(),
-        show_alias: "show".to_string(),
-        genres: vec![],
-        location: None,
-    };
-    assert_eq!(show.playback_url(), None);
-
     let direct = DiscoveryItem::DirectUrl {
         url: "https://youtube.com/watch?v=123".to_string(),
         title: None,
     };
-    assert_eq!(direct.playback_url(), Some("https://youtube.com/watch?v=123".to_string()));
+    assert_eq!(
+        direct.playback_url(),
+        Some("https://youtube.com/watch?v=123".to_string())
+    );
 }
 
 #[test]
@@ -306,40 +297,32 @@ fn test_discovery_item_favorite_key() {
     };
     assert_eq!(episode.favorite_key(), "nts:episode:my-show:my-ep-2026");
 
-    let mixtape = DiscoveryItem::NtsMixtape {
-        title: "Poolside".to_string(),
-        subtitle: "subtitle".to_string(),
-        stream_url: "https://stream.ntslive.net/4".to_string(),
-        mixtape_alias: "poolside".to_string(),
-    };
-    assert_eq!(mixtape.favorite_key(), "nts:mixtape:poolside");
-
-    let show = DiscoveryItem::NtsShow {
-        name: "Show".to_string(),
-        show_alias: "my-show".to_string(),
-        genres: vec![],
-        location: None,
-    };
-    assert_eq!(show.favorite_key(), "nts:show:my-show");
-
     let direct = DiscoveryItem::DirectUrl {
         url: "https://youtube.com/watch?v=123".to_string(),
         title: None,
     };
-    assert_eq!(direct.favorite_key(), "direct:https://youtube.com/watch?v=123");
+    assert_eq!(
+        direct.favorite_key(),
+        "direct:https://youtube.com/watch?v=123"
+    );
 }
 
-// ── 2.3 NTS API Client (integration) ────────────────────────────────────────
+// ── NTS API Client (integration) ────────────────────────────────────────────
 
 #[tokio::test]
 #[ignore = "integration: requires network access"]
 async fn test_nts_client_fetch_live() {
     let client = NtsClient::new();
-    let items = client.fetch_live().await.expect("fetch_live should succeed");
+    let items = client
+        .fetch_live()
+        .await
+        .expect("fetch_live should succeed");
     assert_eq!(items.len(), 2, "expected 2 live channels");
     for item in &items {
         match item {
-            DiscoveryItem::NtsLiveChannel { channel, show_name, .. } => {
+            DiscoveryItem::NtsLiveChannel {
+                channel, show_name, ..
+            } => {
                 assert!(*channel == 1 || *channel == 2, "channel should be 1 or 2");
                 assert!(!show_name.is_empty(), "show_name should not be empty");
             }
@@ -352,7 +335,10 @@ async fn test_nts_client_fetch_live() {
 #[ignore = "integration: requires network access"]
 async fn test_nts_client_fetch_picks() {
     let client = NtsClient::new();
-    let items = client.fetch_picks().await.expect("fetch_picks should succeed");
+    let items = client
+        .fetch_picks()
+        .await
+        .expect("fetch_picks should succeed");
     assert!(!items.is_empty(), "picks should not be empty");
     for item in &items {
         match item {
@@ -364,34 +350,38 @@ async fn test_nts_client_fetch_picks() {
     }
 }
 
-// ── 2.4 MpvPlayer ────────────────────────────────────────────────────────────
+// ── MpvPlayer ────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_mpv_player_new() {
     let player = MpvPlayer::new();
     let pid = std::process::id();
-    let expected_socket = format!("/tmp/clisten-mpv-{}.sock", pid);
-    assert_eq!(player.socket_path.to_str().unwrap(), expected_socket);
+    let expected_socket = std::env::temp_dir().join(format!("clisten-mpv-{}.sock", pid));
+    assert_eq!(player.socket_path(), expected_socket);
 }
 
 #[tokio::test]
 #[ignore = "integration: requires mpv installed"]
 async fn test_mpv_player_play_spawns_process() {
     let mut player = MpvPlayer::new();
-    let result = player.play("https://stream-relay-geo.ntslive.net/stream").await;
+    let result = player
+        .play("https://stream-relay-geo.ntslive.net/stream")
+        .await;
     assert!(result.is_ok(), "play() should succeed: {:?}", result);
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    assert!(player.socket_path.exists(), "IPC socket should exist after play");
+    assert!(
+        player.socket_path().exists(),
+        "IPC socket should exist after play"
+    );
     player.stop().await.ok();
 }
 
-// ── 2.5 NTS Sub-Tab Coordinator ──────────────────────────────────────────────
+// ── Sub-tab coordinator ─────────────────────────────────────────────────────
 
 #[test]
 fn test_nts_tab_initial_state() {
     let tab = NtsTab::new();
     assert_eq!(tab.active_sub, NtsSubTab::Live);
-    assert!(tab.loaded.is_empty());
 }
 
 #[test]
@@ -400,11 +390,19 @@ fn test_nts_tab_lazy_loading() {
 
     let actions = tab.switch_sub_tab(0);
     let has_load_live = actions.iter().any(|a| matches!(a, Action::LoadNtsLive));
-    assert!(has_load_live, "first visit to Live should return LoadNtsLive, got: {:?}", actions);
+    assert!(
+        has_load_live,
+        "first visit to Live should return LoadNtsLive, got: {:?}",
+        actions
+    );
     assert_eq!(tab.active_sub, NtsSubTab::Live);
 
     let actions2 = tab.switch_sub_tab(0);
-    assert!(actions2.is_empty(), "second visit should not trigger load, got: {:?}", actions2);
+    assert!(
+        actions2.is_empty(),
+        "second visit should not trigger load, got: {:?}",
+        actions2
+    );
 }
 
 #[test]
@@ -414,7 +412,11 @@ fn test_nts_tab_switch_to_picks() {
     let actions = tab.switch_sub_tab(1);
     assert_eq!(tab.active_sub, NtsSubTab::Picks);
     let has_load_picks = actions.iter().any(|a| matches!(a, Action::LoadNtsPicks));
-    assert!(has_load_picks, "first visit to Picks should return LoadNtsPicks, got: {:?}", actions);
+    assert!(
+        has_load_picks,
+        "first visit to Picks should return LoadNtsPicks, got: {:?}",
+        actions
+    );
 }
 
 #[test]
@@ -424,7 +426,11 @@ fn test_nts_tab_switch_to_search() {
     let actions = tab.switch_sub_tab(2);
     assert_eq!(tab.active_sub, NtsSubTab::Search);
     let has_load_genres = actions.iter().any(|a| matches!(a, Action::LoadGenres));
-    assert!(has_load_genres, "first visit to Search should return LoadGenres, got: {:?}", actions);
+    assert!(
+        has_load_genres,
+        "first visit to Search should return LoadGenres, got: {:?}",
+        actions
+    );
 }
 
 #[test]

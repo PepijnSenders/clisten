@@ -1,4 +1,4 @@
-// tests/phase5_queue_polish.rs
+// Queue operations, action dispatch, error/help overlays, and keybinding integration.
 
 use clisten::action::Action;
 use clisten::api::models::DiscoveryItem;
@@ -8,27 +8,31 @@ use clisten::player::queue::{Queue, QueueItem};
 
 fn make_queue_item(title: &str, url: &str) -> QueueItem {
     QueueItem {
-        item: DiscoveryItem::NtsMixtape {
-            title: title.to_string(),
-            subtitle: String::new(),
-            stream_url: url.to_string(),
-            mixtape_alias: title.to_string(),
+        item: DiscoveryItem::NtsEpisode {
+            name: title.to_string(),
+            show_alias: title.to_string(),
+            episode_alias: title.to_string(),
+            genres: vec![],
+            location: None,
+            audio_url: Some(url.to_string()),
         },
         url: url.to_string(),
-        stream_title: None,
+        stream_metadata: None,
     }
 }
 
 fn make_item(title: &str) -> DiscoveryItem {
-    DiscoveryItem::NtsMixtape {
-        title: title.to_string(),
-        subtitle: String::new(),
-        stream_url: format!("http://{}", title),
-        mixtape_alias: title.to_string(),
+    DiscoveryItem::NtsEpisode {
+        name: title.to_string(),
+        show_alias: title.to_string(),
+        episode_alias: title.to_string(),
+        genres: vec![],
+        location: None,
+        audio_url: Some(format!("http://{}", title)),
     }
 }
 
-// ── 5.1 Queue ─────────────────────────────────────────────────────────────────
+// ── Queue ────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_queue_new_empty() {
@@ -95,7 +99,7 @@ fn test_queue_remove_current_adjusts_index() {
     q.add(make_queue_item("Track 1", "http://a"));
     q.add(make_queue_item("Track 2", "http://b"));
     // advance to track 2
-    q.next();
+    q.advance();
     assert_eq!(q.current_index(), Some(1));
     // remove item before current
     q.remove(0);
@@ -128,7 +132,7 @@ fn test_queue_next() {
     let mut q = Queue::new();
     q.add(make_queue_item("Track 1", "http://a"));
     q.add(make_queue_item("Track 2", "http://b"));
-    let item = q.next();
+    let item = q.advance();
     assert!(item.is_some());
     assert_eq!(item.unwrap().url, "http://b");
     assert_eq!(q.current_index(), Some(1));
@@ -138,7 +142,7 @@ fn test_queue_next() {
 fn test_queue_next_at_end() {
     let mut q = Queue::new();
     q.add(make_queue_item("Track 1", "http://a"));
-    let item = q.next();
+    let item = q.advance();
     assert!(item.is_none());
     // current_index stays at 0
     assert_eq!(q.current_index(), Some(0));
@@ -149,7 +153,7 @@ fn test_queue_prev() {
     let mut q = Queue::new();
     q.add(make_queue_item("Track 1", "http://a"));
     q.add(make_queue_item("Track 2", "http://b"));
-    q.next(); // move to index 1
+    q.advance(); // move to index 1
     let item = q.prev();
     assert!(item.is_some());
     assert_eq!(item.unwrap().url, "http://a");
@@ -165,7 +169,7 @@ fn test_queue_prev_at_start() {
     assert_eq!(q.current_index(), Some(0));
 }
 
-// ── 5.2 Queue Action Variants ─────────────────────────────────────────────────
+// ── Queue action variants ────────────────────────────────────────────────────
 
 #[test]
 fn test_queue_action_variants_exist() {
@@ -178,7 +182,7 @@ fn test_queue_action_variants_exist() {
     let _prev = Action::PrevTrack;
 }
 
-// ── 5.3 Error Handling Actions ────────────────────────────────────────────────
+// ── Error handling ───────────────────────────────────────────────────────────
 
 #[test]
 fn test_show_error_action_exists() {
@@ -186,7 +190,7 @@ fn test_show_error_action_exists() {
     let _b = Action::ClearError;
 }
 
-// ── 5.4 Help Overlay Actions ──────────────────────────────────────────────────
+// ── Help overlay ─────────────────────────────────────────────────────────────
 
 #[test]
 fn test_help_action_variants_exist() {
@@ -199,14 +203,18 @@ fn test_help_action_variants_exist() {
 #[tokio::test]
 async fn test_show_error_sets_message() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::ShowError("test error".to_string())).await.unwrap();
+    app.handle_action(Action::ShowError("test error".to_string()))
+        .await
+        .unwrap();
     assert_eq!(app.error_message.as_deref(), Some("test error"));
 }
 
 #[tokio::test]
 async fn test_clear_error_clears_message() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::ShowError("err".to_string())).await.unwrap();
+    app.handle_action(Action::ShowError("err".to_string()))
+        .await
+        .unwrap();
     app.handle_action(Action::ClearError).await.unwrap();
     assert!(app.error_message.is_none());
 }
@@ -229,7 +237,9 @@ async fn test_help_toggle_off() {
 #[tokio::test]
 async fn test_add_to_queue() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track1"))).await.unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track1")))
+        .await
+        .unwrap();
     assert_eq!(app.queue.len(), 1);
     assert_eq!(app.queue.current_index(), Some(0));
 }
@@ -237,9 +247,15 @@ async fn test_add_to_queue() {
 #[tokio::test]
 async fn test_add_to_queue_next() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track1"))).await.unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track3"))).await.unwrap();
-    app.handle_action(Action::AddToQueueNext(make_item("track2"))).await.unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track1")))
+        .await
+        .unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track3")))
+        .await
+        .unwrap();
+    app.handle_action(Action::AddToQueueNext(make_item("track2")))
+        .await
+        .unwrap();
     // track2 should be inserted after current (index 0), so at index 1
     assert_eq!(app.queue.items()[1].url, "http://track2");
 }
@@ -262,7 +278,9 @@ async fn test_key_a_adds_to_queue() {
 async fn test_key_c_clears_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track1"))).await.unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track1")))
+        .await
+        .unwrap();
 
     let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE);
     app.handle_key(key).unwrap();
@@ -273,8 +291,12 @@ async fn test_key_c_clears_queue() {
 #[tokio::test]
 async fn test_playback_finished_advances_queue() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track1"))).await.unwrap();
-    app.handle_action(Action::AddToQueue(make_item("track2"))).await.unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track1")))
+        .await
+        .unwrap();
+    app.handle_action(Action::AddToQueue(make_item("track2")))
+        .await
+        .unwrap();
     // current is at 0 (track1); PlaybackFinished should auto-advance to track2
     app.handle_action(Action::PlaybackFinished).await.unwrap();
     // queue advances — current index should be 1
@@ -332,18 +354,20 @@ async fn test_retry_key_ignored_without_error() {
     assert!(app.error_message.is_none());
 }
 
-// ── 5.3 Error display (status line) ──────────────────────────────────────────
+// ── Error display ────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_error_displayed_in_status() {
     // When error_message is Some, the app should hold it for rendering
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
     assert!(app.error_message.is_none());
-    app.handle_action(Action::ShowError("network timeout".to_string())).await.unwrap();
+    app.handle_action(Action::ShowError("network timeout".to_string()))
+        .await
+        .unwrap();
     assert_eq!(app.error_message.as_deref(), Some("network timeout"));
 }
 
-// ── 5.4 Any key dismisses help overlay ───────────────────────────────────────
+// ── Any key dismisses help overlay ───────────────────────────────────────────
 
 #[tokio::test]
 async fn test_any_key_dismisses_help() {
@@ -370,7 +394,7 @@ async fn test_help_overlay_dismisses_on_escape() {
     assert!(!app.show_help);
 }
 
-// ── 5.5 Dependency Check ──────────────────────────────────────────────────────
+// ── Dependency check ─────────────────────────────────────────────────────────
 
 #[test]
 #[ignore = "requires mpv to be installed"]

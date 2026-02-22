@@ -1,4 +1,5 @@
-// src/components/discovery_list.rs
+// Scrollable, filterable list of DiscoveryItems (left panel). Handles
+// keyboard navigation, text filtering, and progressive append for search results.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -8,100 +9,98 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
+use std::collections::HashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::api::models::DiscoveryItem;
 use crate::components::{Component, BRAILLE_SPINNER};
 
+#[derive(Default)]
 pub struct DiscoveryList {
     action_tx: Option<UnboundedSender<Action>>,
     /// Full unfiltered dataset
-    pub all_items: Vec<DiscoveryItem>,
+    all_items: Vec<DiscoveryItem>,
     /// Currently visible items (filtered or full)
-    pub items: Vec<DiscoveryItem>,
-    pub state: ListState,
-    pub favorites: std::collections::HashSet<String>,
-    pub filter_query: Option<String>,
-    pub loading: bool,
-    pub frame_count: u64,
+    items: Vec<DiscoveryItem>,
+    state: ListState,
+    favorites: HashSet<String>,
+    filter_query: Option<String>,
+    loading: bool,
+    frame_count: u64,
 }
 
 impl DiscoveryList {
     pub fn new() -> Self {
-        Self {
-            action_tx: None,
-            all_items: vec![],
-            items: vec![],
-            state: ListState::default(),
-            favorites: std::collections::HashSet::new(),
-            filter_query: None,
-            loading: false,
-            frame_count: 0,
-        }
+        Self::default()
     }
 
     pub fn set_items(&mut self, items: Vec<DiscoveryItem>) {
-        self.all_items = items.clone();
-        // Apply current filter if any
-        if let Some(ref query) = self.filter_query.clone() {
-            self.apply_filter(query);
-        } else {
-            self.items = items;
-            self.state.select(if self.items.is_empty() { None } else { Some(0) });
-        }
+        self.all_items = items;
+        self.refilter();
         self.loading = false;
     }
 
     pub fn set_filter(&mut self, query: Option<String>) {
-        self.filter_query = query.clone();
-        match query {
-            Some(ref q) => self.apply_filter(q),
-            None => {
-                self.items = self.all_items.clone();
-                self.state.select(if self.items.is_empty() { None } else { Some(0) });
+        self.filter_query = query;
+        self.refilter();
+    }
+
+    pub fn append_items(&mut self, new_items: Vec<DiscoveryItem>) {
+        let prev_selected = self.state.selected();
+        self.all_items.extend(new_items);
+        self.refilter();
+        // Preserve scroll position when appending
+        if let Some(idx) = prev_selected {
+            if idx < self.items.len() {
+                self.state.select(Some(idx));
             }
         }
     }
 
-    fn apply_filter(&mut self, query: &str) {
-        let q = query.to_lowercase();
-        self.items = self.all_items.iter().filter(|item| {
-            item.title().to_lowercase().contains(&q)
-                || item.subtitle().to_lowercase().contains(&q)
-        }).cloned().collect();
-        self.state.select(if self.items.is_empty() { None } else { Some(0) });
+    /// Rebuild the visible items list from all_items + current filter.
+    fn refilter(&mut self) {
+        match self.filter_query {
+            Some(ref q) => {
+                let q = q.to_lowercase();
+                self.items = self
+                    .all_items
+                    .iter()
+                    .filter(|item| {
+                        item.title().to_lowercase().contains(&q)
+                            || item.subtitle().to_lowercase().contains(&q)
+                    })
+                    .cloned()
+                    .collect();
+            }
+            None => {
+                self.items = self.all_items.clone();
+            }
+        }
+        self.state
+            .select(if self.items.is_empty() { None } else { Some(0) });
     }
 
-    /// Returns the currently visible items (respects filter)
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn visible_items(&self) -> &[DiscoveryItem] {
         &self.items
     }
 
-    pub fn append_items(&mut self, new_items: Vec<DiscoveryItem>) {
-        self.all_items.extend(new_items);
-        // Re-apply filter if any
-        if let Some(ref query) = self.filter_query.clone() {
-            let selected = self.state.selected();
-            self.apply_filter(query);
-            // Preserve scroll position
-            if let Some(idx) = selected {
-                if idx < self.items.len() {
-                    self.state.select(Some(idx));
-                }
-            }
-        } else {
-            self.items = self.all_items.clone();
-        }
+    #[allow(dead_code)] // used by integration tests
+    pub fn total_item_count(&self) -> usize {
+        self.all_items.len()
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
+    pub fn selected_index(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
     pub fn set_loading(&mut self, loading: bool) {
         self.loading = loading;
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn is_loading(&self) -> bool {
         self.loading
     }
@@ -110,12 +109,14 @@ impl DiscoveryList {
         self.state.selected().and_then(|i| self.items.get(i))
     }
 
-    pub fn set_favorites(&mut self, favorites: std::collections::HashSet<String>) {
+    pub fn set_favorites(&mut self, favorites: HashSet<String>) {
         self.favorites = favorites;
     }
 
     pub fn next(&mut self) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         let i = match self.state.selected() {
             Some(i) => (i + 1).min(self.items.len() - 1),
             None => 0,
@@ -124,7 +125,9 @@ impl DiscoveryList {
     }
 
     pub fn prev(&mut self) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         let i = match self.state.selected() {
             Some(i) => i.saturating_sub(1),
             None => 0,
@@ -139,10 +142,16 @@ impl Component for DiscoveryList {
     }
 
     fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let tx = self.action_tx.as_ref().unwrap();
+        let tx = self.action_tx.as_ref().expect("component not registered");
         match key.code {
-            KeyCode::Down | KeyCode::Char('j') => { self.next(); Ok(true) }
-            KeyCode::Up | KeyCode::Char('k') => { self.prev(); Ok(true) }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.next();
+                Ok(true)
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.prev();
+                Ok(true)
+            }
             KeyCode::Enter => {
                 if let Some(item) = self.selected_item() {
                     match item {
@@ -158,28 +167,13 @@ impl Component for DiscoveryList {
                 }
                 Ok(true)
             }
-            KeyCode::Char('a') => {
-                if let Some(item) = self.selected_item() {
-                    tx.send(Action::AddToQueue(item.clone()))?;
-                }
-                Ok(true)
-            }
             _ => Ok(false),
         }
     }
 
     fn update(&mut self, action: &Action) -> anyhow::Result<Vec<Action>> {
-        match action {
-            Action::Tick => {
-                self.frame_count = self.frame_count.wrapping_add(1);
-            }
-            Action::FilterList(query) => {
-                self.set_filter(Some(query.clone()));
-            }
-            Action::ClearFilter => {
-                self.set_filter(None);
-            }
-            _ => {}
+        if matches!(action, Action::Tick) {
+            self.frame_count = self.frame_count.wrapping_add(1);
         }
         Ok(vec![])
     }
@@ -197,49 +191,56 @@ impl Component for DiscoveryList {
         }
 
         let selected = self.state.selected();
-        let items: Vec<ListItem> = self.items.iter().enumerate().map(|(i, item)| {
-            let is_fav = self.favorites.contains(&item.favorite_key());
-            let heart = if is_fav { " ♥" } else { "" };
-            let is_selected = selected == Some(i);
-            let num = format!("{:02} ", i + 1);
+        let items: Vec<ListItem> = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let is_fav = self.favorites.contains(&item.favorite_key());
+                let heart = if is_fav { " ♥" } else { "" };
+                let is_selected = selected == Some(i);
+                let num = format!("{:02} ", i + 1);
 
-            let title_style = if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            let subtitle_color = if is_selected {
-                Color::Cyan
-            } else if i % 2 == 0 {
-                Color::DarkGray
-            } else {
-                Color::Gray
-            };
+                let title_style = if is_selected {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let subtitle_color = if is_selected {
+                    Color::Cyan
+                } else if i % 2 == 0 {
+                    Color::DarkGray
+                } else {
+                    Color::Gray
+                };
 
-            let bg = if is_selected {
-                Some(Color::Rgb(30, 30, 40))
-            } else {
-                None
-            };
+                let bg = if is_selected {
+                    Some(Color::Rgb(30, 30, 40))
+                } else {
+                    None
+                };
 
-            let line_spans = vec![
-                Span::styled(num.clone(), Style::default().fg(Color::DarkGray)),
-                Span::styled(item.title(), title_style),
-                Span::styled(heart, Style::default().fg(Color::Red)),
-            ];
+                let line_spans = vec![
+                    Span::styled(num, Style::default().fg(Color::DarkGray)),
+                    Span::styled(item.title(), title_style),
+                    Span::styled(heart, Style::default().fg(Color::Red)),
+                ];
 
-            let title_line = Line::from(line_spans);
-            let sub_line = Line::from(vec![
-                Span::styled("   ", Style::default().fg(Color::DarkGray)),
-                Span::styled(item.subtitle(), Style::default().fg(subtitle_color)),
-            ]);
+                let title_line = Line::from(line_spans);
+                let sub_line = Line::from(vec![
+                    Span::styled("   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(item.subtitle(), Style::default().fg(subtitle_color)),
+                ]);
 
-            let mut list_item = ListItem::new(vec![title_line, sub_line]);
-            if let Some(bg_color) = bg {
-                list_item = list_item.style(Style::default().bg(bg_color));
-            }
-            list_item
-        }).collect();
+                let mut list_item = ListItem::new(vec![title_line, sub_line]);
+                if let Some(bg_color) = bg {
+                    list_item = list_item.style(Style::default().bg(bg_color));
+                }
+                list_item
+            })
+            .collect();
 
         let list = List::new(items)
             .highlight_style(

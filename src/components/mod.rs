@@ -1,4 +1,5 @@
-// src/components/mod.rs
+// UI components. Each implements the Component trait: register for actions,
+// handle key events, update state, and draw into a ratatui frame.
 
 pub mod blob;
 pub mod direct_play_modal;
@@ -6,11 +7,12 @@ pub mod discovery_list;
 pub mod now_playing;
 pub mod nts;
 pub mod play_controls;
+pub mod queue_list;
 pub mod search_bar;
 
 use crossterm::event::KeyEvent;
-use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::Frame;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;

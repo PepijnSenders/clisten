@@ -1,4 +1,4 @@
-// src/components/search_bar.rs
+// Text input for filtering the discovery list. Activated with `/`.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -12,15 +12,16 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::action::Action;
 use crate::components::Component;
 
+#[derive(Default)]
 pub struct SearchBar {
     action_tx: Option<UnboundedSender<Action>>,
-    pub input: String,
-    pub focused: bool,
+    input: String,
+    focused: bool,
 }
 
 impl SearchBar {
     pub fn new() -> Self {
-        Self { action_tx: None, input: String::new(), focused: false }
+        Self::default()
     }
 
     pub fn is_focused(&self) -> bool {
@@ -38,8 +39,10 @@ impl Component for SearchBar {
     }
 
     fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        if !self.focused { return Ok(false); }
-        let tx = self.action_tx.as_ref().unwrap();
+        if !self.focused {
+            return Ok(false);
+        }
+        let tx = self.action_tx.as_ref().expect("component not registered");
         match key.code {
             KeyCode::Char(c) => {
                 self.input.push(c);
@@ -66,8 +69,13 @@ impl Component for SearchBar {
 
     fn update(&mut self, action: &Action) -> anyhow::Result<Vec<Action>> {
         match action {
-            Action::FocusSearch => { self.focused = true; }
-            Action::Back => { self.focused = false; self.input.clear(); }
+            Action::FocusSearch => {
+                self.focused = true;
+            }
+            Action::Back => {
+                self.focused = false;
+                self.input.clear();
+            }
             Action::SearchSubmit => {
                 // Clear input and unfocus after submit
                 self.input.clear();
@@ -91,8 +99,7 @@ impl Component for SearchBar {
             format!("/ {}_", self.input)
         };
 
-        let paragraph = Paragraph::new(display)
-            .style(style);
+        let paragraph = Paragraph::new(display).style(style);
         frame.render_widget(paragraph, area);
     }
 }

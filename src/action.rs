@@ -2,7 +2,11 @@
 // Action variant. The App event loop dispatches these to component handlers.
 
 use crate::api::models::DiscoveryItem;
+use crate::player::StreamMetadata;
 
+/// All events flowing through the app — user actions, async results, and
+/// internal signals. The [`App`](crate::app::App) event loop dispatches
+/// each variant to the appropriate handler.
 #[derive(Debug, Clone)]
 pub enum Action {
     Quit,
@@ -17,11 +21,17 @@ pub enum Action {
     Stop,
     NextTrack,
     PrevTrack,
-    PlaybackStarted { title: String, url: String },
+    PlaybackStarted {
+        title: String,
+    },
     PlaybackLoading,
     PlaybackFinished,
     PlaybackPosition(f64),
-    StreamMetadataChanged(String),
+    AudioLevels {
+        rms: f64,
+        peak: f64,
+    },
+    StreamMetadataChanged(StreamMetadata),
 
     AddToQueue(DiscoveryItem),
     AddToQueueNext(DiscoveryItem),
@@ -37,8 +47,14 @@ pub enum Action {
 
     LoadGenres,
     GenresLoaded(Vec<DiscoveryItem>),
-    SearchByGenre { genre_id: String },
-    SearchResultsPartial { search_id: u64, items: Vec<DiscoveryItem>, done: bool },
+    SearchByGenre {
+        genre_id: String,
+    },
+    SearchResultsPartial {
+        search_id: u64,
+        items: Vec<DiscoveryItem>,
+        done: bool,
+    },
 
     FilterList(String),
     ClearFilter,
@@ -54,6 +70,5 @@ pub enum Action {
     ClearError,
     ShowHelp,
     HideHelp,
-    Resize(u16, u16),
     Tick,
 }

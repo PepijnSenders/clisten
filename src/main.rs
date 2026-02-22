@@ -11,39 +11,28 @@ mod player;
 mod tui;
 mod ui;
 
-use clap::Parser;
-
 use crate::config::Config;
 
-#[derive(Parser)]
-#[command(name = "clisten", about = "NTS Radio TUI player")]
-struct Cli {}
-
-fn check_dependencies() -> anyhow::Result<()> {
-    match which::which("mpv") {
-        Err(_) => {
-            eprintln!("Error: mpv is required but not found. Install with: brew install mpv");
-            std::process::exit(1);
-        }
-        Ok(_) => {}
+fn check_dependencies() {
+    if which::which("mpv").is_err() {
+        eprintln!("Error: mpv is required but not found. Install with: brew install mpv");
+        std::process::exit(1);
     }
-
     if which::which("yt-dlp").is_err() {
         eprintln!("Warning: yt-dlp not found. Some playback may not work.");
         eprintln!("Install with: brew install yt-dlp");
     }
-
-    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _cli = Cli::parse();
+    check_dependencies();
 
-    check_dependencies()?;
-
-    let config = Config::load().unwrap_or_default();
-    logging::init(&config)?;
+    let config = Config::load().unwrap_or_else(|e| {
+        eprintln!("Warning: failed to load config: {e}. Using defaults.");
+        Config::default()
+    });
+    logging::init()?;
 
     let mut app = app::App::new(config)?;
     app.run().await?;

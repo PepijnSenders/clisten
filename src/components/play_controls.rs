@@ -1,4 +1,4 @@
-// src/components/play_controls.rs
+// Bottom status bar: playback state, keybinding hints, volume, and queue position.
 
 use ratatui::{
     layout::Rect,
@@ -12,31 +12,48 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::action::Action;
 use crate::components::{Component, BRAILLE_SPINNER};
 
+#[derive(Default)]
 pub struct PlayControls {
     action_tx: Option<UnboundedSender<Action>>,
-    pub playing: bool,
-    pub paused: bool,
-    pub buffering: bool,
-    pub queue_pos: Option<usize>,
-    pub queue_len: usize,
-    pub volume: Option<u8>,
-    pub current_title: Option<String>,
+    playing: bool,
+    paused: bool,
+    buffering: bool,
+    queue_pos: Option<usize>,
+    queue_len: usize,
+    volume: Option<u8>,
+    current_title: Option<String>,
     frame_count: u64,
 }
 
 impl PlayControls {
     pub fn new() -> Self {
-        Self {
-            action_tx: None,
-            playing: false,
-            paused: false,
-            buffering: false,
-            queue_pos: None,
-            queue_len: 0,
-            volume: None,
-            current_title: None,
-            frame_count: 0,
-        }
+        Self::default()
+    }
+
+    pub fn set_queue_info(&mut self, pos: Option<usize>, len: usize) {
+        self.queue_pos = pos;
+        self.queue_len = len;
+    }
+
+    pub fn set_buffering(&mut self, buffering: bool) {
+        self.buffering = buffering;
+    }
+
+    #[allow(dead_code)] // used by integration tests
+    pub fn is_playing(&self) -> bool {
+        self.playing
+    }
+    #[allow(dead_code)] // used by integration tests
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+    #[allow(dead_code)] // used by integration tests
+    pub fn queue_len(&self) -> usize {
+        self.queue_len
+    }
+    #[allow(dead_code)] // used by integration tests
+    pub fn volume(&self) -> Option<u8> {
+        self.volume
     }
 }
 
@@ -47,13 +64,38 @@ impl Component for PlayControls {
 
     fn update(&mut self, action: &Action) -> anyhow::Result<Vec<Action>> {
         match action {
-            Action::Tick => { self.frame_count = self.frame_count.wrapping_add(1); }
-            Action::PlaybackLoading => { self.buffering = true; }
-            Action::PlaybackStarted { ref title, .. } => { self.playing = true; self.paused = false; self.buffering = false; self.current_title = Some(title.clone()); }
-            Action::PlaybackPosition(_) => { self.buffering = false; }
-            Action::PlaybackFinished | Action::Stop => { self.playing = false; self.paused = false; self.buffering = false; self.current_title = None; }
-            Action::TogglePlayPause => { self.paused = !self.paused; }
-            Action::VolumeChanged(vol) => { self.volume = Some(*vol); }
+            Action::Tick => {
+                self.frame_count = self.frame_count.wrapping_add(1);
+            }
+            Action::PlaybackLoading => {
+                self.buffering = true;
+            }
+            Action::PlaybackStarted { ref title, .. } => {
+                self.playing = true;
+                self.paused = false;
+                self.buffering = false;
+                self.current_title = Some(title.clone());
+            }
+            Action::PlaybackPosition(_) => {
+                self.buffering = false;
+            }
+            Action::StreamMetadataChanged(ref metadata) => {
+                if let Some(title) = metadata.display_title() {
+                    self.current_title = Some(title);
+                }
+            }
+            Action::PlaybackFinished | Action::Stop => {
+                self.playing = false;
+                self.paused = false;
+                self.buffering = false;
+                self.current_title = None;
+            }
+            Action::TogglePlayPause => {
+                self.paused = !self.paused;
+            }
+            Action::VolumeChanged(vol) => {
+                self.volume = Some(*vol);
+            }
             _ => {}
         }
         Ok(vec![])
@@ -66,7 +108,11 @@ impl Component for PlayControls {
         } else if self.paused {
             "⏸"
         } else if self.playing {
-            if self.frame_count % 30 < 15 { "♪ ▶" } else { "♫ ▶" }
+            if self.frame_count % 30 < 15 {
+                "♪ ▶"
+            } else {
+                "♫ ▶"
+            }
         } else {
             "■"
         };
@@ -86,7 +132,11 @@ impl Component for PlayControls {
         };
 
         let queue_info = if self.queue_len > 0 {
-            format!("Track {}/{}", self.queue_pos.unwrap_or(0) + 1, self.queue_len)
+            format!(
+                "Track {}/{}",
+                self.queue_pos.unwrap_or(0) + 1,
+                self.queue_len
+            )
         } else {
             String::new()
         };
@@ -99,7 +149,12 @@ impl Component for PlayControls {
         let track_display = self.current_title.as_deref().unwrap_or("");
 
         let mut line1_spans = vec![
-            Span::styled(format!(" {} ", status), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(" {} ", status),
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             div.clone(),
             Span::styled("Space", key_style),
             Span::styled(" Play/Pause", desc_style),
@@ -130,7 +185,10 @@ impl Component for PlayControls {
 
         let line1 = Line::from(line1_spans);
 
-        let vol_info = self.volume.map(|v| format!("Vol {}%", v)).unwrap_or_default();
+        let vol_info = self
+            .volume
+            .map(|v| format!("Vol {}%", v))
+            .unwrap_or_default();
 
         let line2 = Line::from(vec![
             Span::raw("   "),

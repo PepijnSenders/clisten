@@ -1,4 +1,7 @@
-// src/components/nts/mod.rs
+// Sub-tab bar (Live / Picks / Search) and lazy-load coordinator.
+
+use std::collections::HashSet;
+use std::fmt;
 
 use ratatui::{
     layout::Rect,
@@ -7,38 +10,48 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use strum::{Display, EnumIter, IntoEnumIterator};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::components::Component;
 
-#[derive(Debug, Clone, Copy, PartialEq, EnumIter, Display)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum NtsSubTab {
+    #[default]
     Live,
     Picks,
     Search,
 }
 
+impl NtsSubTab {
+    pub const ALL: [NtsSubTab; 3] = [Self::Live, Self::Picks, Self::Search];
+}
+
+impl fmt::Display for NtsSubTab {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Live => write!(f, "Live"),
+            Self::Picks => write!(f, "Picks"),
+            Self::Search => write!(f, "Search"),
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct NtsTab {
     action_tx: Option<UnboundedSender<Action>>,
     pub active_sub: NtsSubTab,
-    pub loaded: std::collections::HashSet<String>,
+    loaded: HashSet<NtsSubTab>,
 }
 
 impl NtsTab {
     pub fn new() -> Self {
-        Self {
-            action_tx: None,
-            active_sub: NtsSubTab::Live,
-            loaded: std::collections::HashSet::new(),
-        }
+        Self::default()
     }
 
     /// Switch to a sub-tab by index (0-based).
     pub fn switch_sub_tab(&mut self, index: usize) -> Vec<Action> {
-        let tabs: Vec<NtsSubTab> = NtsSubTab::iter().collect();
-        if let Some(&tab) = tabs.get(index) {
+        if let Some(&tab) = NtsSubTab::ALL.get(index) {
             self.active_sub = tab;
             self.load_if_needed()
         } else {
@@ -48,12 +61,9 @@ impl NtsTab {
 
     /// Return the load action if this sub-tab hasn't been loaded yet.
     fn load_if_needed(&mut self) -> Vec<Action> {
-        let key = format!("{:?}", self.active_sub);
-        if self.loaded.contains(&key) {
+        if !self.loaded.insert(self.active_sub) {
             return vec![];
         }
-        self.loaded.insert(key);
-
         match self.active_sub {
             NtsSubTab::Live => vec![Action::LoadNtsLive],
             NtsSubTab::Picks => vec![Action::LoadNtsPicks],
@@ -61,9 +71,18 @@ impl NtsTab {
         }
     }
 
-    /// Get the current sub-tab index.
+    /// Get the current sub-tab index (0-based).
     pub fn active_index(&self) -> usize {
-        NtsSubTab::iter().position(|t| t == self.active_sub).unwrap_or(0)
+        match self.active_sub {
+            NtsSubTab::Live => 0,
+            NtsSubTab::Picks => 1,
+            NtsSubTab::Search => 2,
+        }
+    }
+
+    /// Force a sub-tab to be re-fetched on next visit.
+    pub fn mark_unloaded(&mut self, tab: NtsSubTab) {
+        self.loaded.remove(&tab);
     }
 }
 
@@ -72,29 +91,17 @@ impl Component for NtsTab {
         self.action_tx = Some(tx);
     }
 
-    fn update(&mut self, action: &Action) -> anyhow::Result<Vec<Action>> {
-        match action {
-            Action::SwitchSubTab(idx) => {
-                return Ok(self.switch_sub_tab(*idx));
-            }
-            _ => {}
-        }
-        Ok(vec![])
-    }
-
     fn draw(&self, frame: &mut Frame, area: Rect) {
-        let active_idx = NtsSubTab::iter()
-            .position(|t| t == self.active_sub)
-            .unwrap_or(0);
+        let active_idx = self.active_index();
 
         let mut spans: Vec<Span> = Vec::new();
         spans.push(Span::raw(" "));
 
-        for (i, tab) in NtsSubTab::iter().enumerate() {
+        for (i, tab) in NtsSubTab::ALL.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
             }
-            let label = format!("{}", tab);
+            let label = tab.to_string();
             if i == active_idx {
                 spans.push(Span::styled(
                     label,
@@ -103,10 +110,7 @@ impl Component for NtsTab {
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 ));
             } else {
-                spans.push(Span::styled(
-                    label,
-                    Style::default().fg(Color::DarkGray),
-                ));
+                spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
             }
         }
 

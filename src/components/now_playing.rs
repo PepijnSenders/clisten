@@ -12,35 +12,47 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::action::Action;
 use crate::api::models::DiscoveryItem;
 use crate::components::blob::BlobVisualizer;
+use crate::components::queue_list;
 use crate::components::Component;
+use crate::player::StreamMetadata;
 
+#[derive(Default)]
 pub struct NowPlaying {
     action_tx: Option<UnboundedSender<Action>>,
-    pub current_item: Option<DiscoveryItem>,
-    pub position_secs: f64,
-    pub paused: bool,
-    pub buffering: bool,
-    pub stream_metadata: Option<String>,
+    current_item: Option<DiscoveryItem>,
+    position_secs: f64,
+    paused: bool,
+    buffering: bool,
+    stream_metadata: Option<StreamMetadata>,
     queue_items: Vec<(String, String)>,
     queue_current: Option<usize>,
     blob: BlobVisualizer,
-    frame_count: u64,
+    audio_rms: f64,
+    audio_peak: f64,
 }
 
 impl NowPlaying {
     pub fn new() -> Self {
-        Self {
-            action_tx: None,
-            current_item: None,
-            position_secs: 0.0,
-            paused: false,
-            buffering: false,
-            stream_metadata: None,
-            queue_items: Vec::new(),
-            queue_current: None,
-            blob: BlobVisualizer::new(),
-            frame_count: 0,
-        }
+        Self::default()
+    }
+
+    /// Prepare for a new track: set the item, reset playback state, clear old metadata.
+    pub fn set_buffering(&mut self, item: DiscoveryItem) {
+        self.current_item = Some(item);
+        self.position_secs = 0.0;
+        self.paused = false;
+        self.buffering = true;
+        self.stream_metadata = None;
+    }
+
+    /// Clear all playback state (called on stop / playback finished).
+    fn reset(&mut self) {
+        self.current_item = None;
+        self.position_secs = 0.0;
+        self.buffering = false;
+        self.stream_metadata = None;
+        self.audio_rms = 0.0;
+        self.audio_peak = 0.0;
     }
 
     pub fn set_queue(&mut self, items: Vec<(String, String)>, current_index: Option<usize>) {
@@ -48,62 +60,17 @@ impl NowPlaying {
         self.queue_current = current_index;
     }
 
-    fn draw_queue(&self, frame: &mut Frame, area: Rect) {
-        let buf = frame.buffer_mut();
-        for x in area.x..area.x + area.width {
-            if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_char('─');
-                cell.set_fg(Color::DarkGray);
-            }
-        }
+    pub fn is_playing(&self) -> bool {
+        self.current_item.is_some()
+    }
 
-        let title = Line::from(Span::styled(
-            format!(" Queue ({})", self.queue_items.len()),
-            Style::default().fg(Color::DarkGray),
-        ));
-        let title_area = Rect { x: area.x, y: area.y + 1, width: area.width, height: 1 };
-        frame.render_widget(Paragraph::new(title), title_area);
-
-        let inner = Rect {
-            x: area.x + 1,
-            y: area.y + 2,
-            width: area.width.saturating_sub(2),
-            height: area.height.saturating_sub(2),
-        };
-
-        let lines: Vec<Line> = self
-            .queue_items
-            .iter()
-            .enumerate()
-            .map(|(i, (title, subtitle))| {
-                let is_current = self.queue_current == Some(i);
-                let marker = if is_current { "▶ " } else { "  " };
-                let style = if is_current {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::White)
-                };
-                let sub_style = if is_current {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                Line::from(vec![
-                    Span::styled(marker, style),
-                    Span::styled(title.as_str(), style),
-                    Span::styled(
-                        if subtitle.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" - {}", subtitle)
-                        },
-                        sub_style,
-                    ),
-                ])
-            })
-            .collect();
-
-        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+    #[allow(dead_code)] // used by integration tests
+    pub fn position_secs(&self) -> f64 {
+        self.position_secs
+    }
+    #[allow(dead_code)] // used by integration tests
+    pub fn is_paused(&self) -> bool {
+        self.paused
     }
 }
 
@@ -115,40 +82,34 @@ impl Component for NowPlaying {
     fn update(&mut self, action: &Action) -> anyhow::Result<Vec<Action>> {
         match action {
             Action::Tick => {
-                self.frame_count = self.frame_count.wrapping_add(1);
                 self.blob.tick(
                     self.current_item.is_some(),
                     self.paused,
                     self.buffering,
                     self.position_secs,
+                    self.audio_rms,
+                    self.audio_peak,
                 );
             }
-            Action::PlayItem(item) => {
-                self.current_item = Some(item.clone());
-                self.position_secs = 0.0;
-                self.paused = false;
-                self.buffering = true;
-                self.stream_metadata = None;
+            Action::AudioLevels { rms, peak } => {
+                self.audio_rms = *rms;
+                self.audio_peak = *peak;
             }
-            Action::PlaybackLoading => {
-                self.buffering = true;
-                self.stream_metadata = None;
+            Action::PlayItem(item) => {
+                self.set_buffering(item.clone());
             }
             Action::PlaybackPosition(pos) => {
                 self.position_secs = *pos;
                 self.buffering = false;
             }
-            Action::StreamMetadataChanged(title) => {
-                self.stream_metadata = Some(title.clone());
+            Action::StreamMetadataChanged(metadata) => {
+                self.stream_metadata = Some(metadata.clone());
             }
             Action::TogglePlayPause => {
                 self.paused = !self.paused;
             }
             Action::Stop | Action::PlaybackFinished => {
-                self.current_item = None;
-                self.position_secs = 0.0;
-                self.buffering = false;
-                self.stream_metadata = None;
+                self.reset();
             }
             _ => {}
         }
@@ -165,13 +126,20 @@ impl Component for NowPlaying {
 
         // Section header
         let title_style = if self.current_item.is_some() && !self.paused {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
         let np_area = chunks[0];
-        let title_area = Rect { x: np_area.x, y: np_area.y, width: np_area.width, height: 1 };
+        let title_area = Rect {
+            x: np_area.x,
+            y: np_area.y,
+            width: np_area.width,
+            height: 1,
+        };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(" Now Playing", title_style))),
             title_area,
@@ -190,7 +158,7 @@ impl Component for NowPlaying {
                 inner,
             );
             if has_queue {
-                self.draw_queue(frame, chunks[1]);
+                queue_list::draw(frame, chunks[1], &self.queue_items, self.queue_current);
             }
             return;
         };
@@ -222,7 +190,7 @@ impl Component for NowPlaying {
         self.draw_tags(frame, inner_chunks[2], item);
 
         if has_queue {
-            self.draw_queue(frame, chunks[1]);
+            queue_list::draw(frame, chunks[1], &self.queue_items, self.queue_current);
         }
     }
 }
@@ -239,25 +207,50 @@ impl NowPlaying {
             "▶"
         };
 
+        let m = self.stream_metadata.as_ref();
+        let (title_text, subtitle_text) = item.display_pair(
+            m.and_then(|m| m.station_name.as_deref()),
+            m.and_then(|m| m.display_title()).as_deref(),
+            m.and_then(|m| m.display_subtitle()).as_deref(),
+        );
+
+        // NTS items: show stream metadata as a third line (DirectUrl items
+        // fold metadata into title/subtitle via display_pair instead).
+        let meta_line = if !matches!(item, DiscoveryItem::DirectUrl { .. }) {
+            self.stream_metadata
+                .as_ref()
+                .and_then(|m| m.display_title())
+        } else {
+            None
+        };
+
         let mut lines = vec![
             Line::from(Span::styled(
-                item.display_title(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                title_text,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                item.subtitle(),
+                subtitle_text,
                 Style::default().fg(Color::Cyan),
             )),
         ];
 
-        if let Some(ref meta) = self.stream_metadata {
-            lines.push(Line::from(Span::styled(meta.as_str(), Style::default().fg(Color::Magenta))));
+        if let Some(meta) = meta_line {
+            lines.push(Line::from(Span::styled(
+                meta,
+                Style::default().fg(Color::Magenta),
+            )));
         } else {
             lines.push(Line::from(""));
         }
 
         if self.buffering {
-            lines.push(Line::from(Span::styled(status, Style::default().fg(Color::Yellow))));
+            lines.push(Line::from(Span::styled(
+                status,
+                Style::default().fg(Color::Yellow),
+            )));
         } else {
             lines.push(Line::from(format!("{} {}:{:02}", status, mins, secs)));
         }
@@ -266,30 +259,19 @@ impl NowPlaying {
     }
 
     fn draw_tags(&self, frame: &mut Frame, area: Rect, item: &DiscoveryItem) {
-        if area.height == 0 {
-            return;
-        }
-        let mut lines = Vec::new();
-        match item {
+        let text: Option<String> = match item {
             DiscoveryItem::NtsEpisode { genres, .. }
-            | DiscoveryItem::NtsLiveChannel { genres, .. } => {
-                if !genres.is_empty() {
-                    lines.push(Line::from(Span::styled(
-                        format!("Tags: {}", genres.join(", ")),
-                        Style::default().fg(Color::DarkGray),
-                    )));
-                }
+            | DiscoveryItem::NtsLiveChannel { genres, .. }
+                if !genres.is_empty() =>
+            {
+                Some(format!("Tags: {}", genres.join(", ")))
             }
-            DiscoveryItem::DirectUrl { url, .. } => {
-                lines.push(Line::from(Span::styled(
-                    url.chars().take(200).collect::<String>(),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-            _ => {}
-        }
-        if !lines.is_empty() {
-            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+            DiscoveryItem::DirectUrl { url, .. } => Some(url.chars().take(200).collect()),
+            _ => None,
+        };
+        if let Some(text) = text {
+            let line = Line::from(Span::styled(text, Style::default().fg(Color::DarkGray)));
+            frame.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), area);
         }
     }
 }

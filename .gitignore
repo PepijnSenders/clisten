@@ -33,3 +33,9 @@ test-results/
 .claude/
 .agents/
 skills-lock.json
+
+# Internal development files
+spec/
+tests/e2e/
+PLAN.md
+progress.txt

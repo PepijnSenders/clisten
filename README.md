@@ -25,28 +25,27 @@ Built with Rust, [ratatui](https://github.com/ratatui/ratatui), and [mpv](https:
 
 ## Install
 
+Download a prebuilt binary from the [latest release](https://github.com/PepijnSenders/clisten/releases/latest), or build from source:
+
 ```sh
 git clone https://github.com/PepijnSenders/clisten.git
 cd clisten
-cargo build --release
+cargo install --path .
 ```
-
-The binary will be at `target/release/clisten`.
 
 ## Usage
 
 ```sh
-cargo run
-# or after building:
-./target/release/clisten
+clisten
 ```
 
 ## Keybindings
 
 | Key | Action |
 |---|---|
+| `j` / `k` | Scroll down / up |
+| `Enter` | Play selected item / select genre |
 | `Space` | Play / Pause |
-| `Enter` | Play selected item |
 | `n` / `p` | Next / Previous track |
 | `s` | Stop playback |
 | `a` | Add to queue |
@@ -58,9 +57,30 @@ cargo run
 | `/` | Focus search bar |
 | `o` | Open direct URL player |
 | `[` / `]` | Volume down / up |
+| `r` | Retry failed request |
 | `Esc` | Back / unfocus |
 | `?` | Help |
 | `q` | Quit |
+
+## Configuration
+
+Optional config file at `~/.config/clisten/config.toml`:
+
+```toml
+[general]
+frame_rate = 30.0  # TUI refresh rate (fps)
+```
+
+Data (favorites, history) is stored in `~/.local/share/clisten/clisten.db`.
+
+## Development
+
+```sh
+cargo build          # compile
+cargo test           # run all unit + integration tests
+cargo clippy         # lint
+cargo fmt --check    # check formatting
+```
 
 ## License
 

@@ -1,14 +1,16 @@
-// src/player/queue.rs
+// Ordered playback queue with a cursor pointing at the current track.
 
+use super::StreamMetadata;
 use crate::api::models::DiscoveryItem;
 
 #[derive(Debug, Clone)]
 pub struct QueueItem {
     pub item: DiscoveryItem,
     pub url: String,
-    pub stream_title: Option<String>,
+    pub stream_metadata: Option<StreamMetadata>,
 }
 
+#[derive(Default)]
 pub struct Queue {
     items: Vec<QueueItem>,
     current_index: Option<usize>,
@@ -16,7 +18,7 @@ pub struct Queue {
 
 impl Queue {
     pub fn new() -> Self {
-        Self { items: vec![], current_index: None }
+        Self::default()
     }
 
     /// Add item to end of queue.
@@ -36,8 +38,7 @@ impl Queue {
         }
     }
 
-    /// Remove item at index.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn remove(&mut self, index: usize) {
         if index < self.items.len() {
             self.items.remove(index);
@@ -56,13 +57,13 @@ impl Queue {
         self.current_index = None;
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn current(&self) -> Option<&QueueItem> {
         self.current_index.and_then(|i| self.items.get(i))
     }
 
-    /// Advance to next track. Returns the next item if available.
-    pub fn next(&mut self) -> Option<&QueueItem> {
+    /// Advance to next track. Returns the new current item, or None if at end.
+    pub fn advance(&mut self) -> Option<&QueueItem> {
         if let Some(i) = self.current_index {
             if i + 1 < self.items.len() {
                 self.current_index = Some(i + 1);
@@ -87,7 +88,7 @@ impl Queue {
         &self.items
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -110,11 +111,11 @@ impl Queue {
         }
     }
 
-    /// Update the stream title of the current item (e.g. from ICY metadata).
-    pub fn set_current_stream_title(&mut self, title: String) {
+    /// Update the stream metadata of the current item (e.g. from ICY metadata).
+    pub fn set_current_stream_metadata(&mut self, metadata: StreamMetadata) {
         if let Some(i) = self.current_index {
             if let Some(item) = self.items.get_mut(i) {
-                item.stream_title = Some(title);
+                item.stream_metadata = Some(metadata);
             }
         }
     }

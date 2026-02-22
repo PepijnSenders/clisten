@@ -7,13 +7,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::components::Component;
-use crate::components::discovery_list::DiscoveryList;
-use crate::components::search_bar::SearchBar;
-use crate::components::now_playing::NowPlaying;
-use crate::components::play_controls::PlayControls;
-use crate::components::nts::NtsTab;
 use crate::components::direct_play_modal::DirectPlayModal;
+use crate::components::discovery_list::DiscoveryList;
+use crate::components::now_playing::NowPlaying;
+use crate::components::nts::NtsTab;
+use crate::components::play_controls::PlayControls;
+use crate::components::search_bar::SearchBar;
+use crate::components::Component;
 
 pub struct DrawState<'a> {
     pub nts_tab: &'a NtsTab,
@@ -32,7 +32,8 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
         Constraint::Min(0),
         Constraint::Length(error_height),
         Constraint::Length(4),
-    ]).split(frame.area());
+    ])
+    .split(frame.area());
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
@@ -40,16 +41,15 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
     let content_area = outer_block.inner(outer[0]);
     frame.render_widget(outer_block, outer[0]);
 
-    let main = Layout::horizontal([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
-    ]).split(content_area);
+    let main = Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(content_area);
 
     let left = Layout::vertical([
         Constraint::Length(2),
         Constraint::Min(0),
         Constraint::Length(2),
-    ]).split(main[0]);
+    ])
+    .split(main[0]);
 
     state.nts_tab.draw(frame, left[0]);
     state.discovery_list.draw(frame, left[1]);
@@ -135,36 +135,46 @@ fn draw_help_overlay(frame: &mut Frame) {
     let overlay_height = 24u16;
     let x = area.width.saturating_sub(overlay_width) / 2;
     let y = area.height.saturating_sub(overlay_height) / 2;
-    let overlay_area = Rect::new(x, y, overlay_width.min(area.width), overlay_height.min(area.height));
+    let overlay_area = Rect::new(
+        x,
+        y,
+        overlay_width.min(area.width),
+        overlay_height.min(area.height),
+    );
 
     frame.render_widget(Clear, overlay_area);
 
     let keybindings = [
-        ("q",         "Quit"),
-        ("1–3",       "Switch sub-tab"),
-        ("Tab",       "Next sub-tab"),
+        ("q", "Quit"),
+        ("1–3", "Switch sub-tab"),
+        ("Tab", "Next sub-tab"),
         ("Shift+Tab", "Previous sub-tab"),
-        ("j / Down",  "Scroll down"),
-        ("k / Up",    "Scroll up"),
-        ("Enter",     "Play / select genre"),
-        ("a",         "Add to queue"),
-        ("A",         "Add to queue next (after current)"),
-        ("Space",     "Toggle play/pause"),
-        ("n",         "Next track in queue"),
-        ("p",         "Previous track in queue"),
-        ("s",         "Stop playback"),
-        ("o",         "Open URL (direct play)"),
-        ("/",         "Focus search bar"),
-        ("Escape",    "Unfocus search / go back"),
-        ("f",         "Toggle favorite"),
-        ("c",         "Clear queue"),
-        ("[ ]",       "Volume down/up"),
-        ("?",         "Toggle this help overlay"),
-        ("r",         "Retry failed request"),
+        ("j / Down", "Scroll down"),
+        ("k / Up", "Scroll up"),
+        ("Enter", "Play / select genre"),
+        ("a", "Add to queue"),
+        ("A", "Add to queue next (after current)"),
+        ("Space", "Toggle play/pause"),
+        ("n", "Next track in queue"),
+        ("p", "Previous track in queue"),
+        ("s", "Stop playback"),
+        ("o", "Open URL (direct play)"),
+        ("/", "Focus search bar"),
+        ("Escape", "Unfocus search / go back"),
+        ("f", "Toggle favorite"),
+        ("c", "Clear queue"),
+        ("[ ]", "Volume down/up"),
+        ("?", "Toggle this help overlay"),
+        ("r", "Retry failed request"),
     ];
 
     let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(" Keybindings ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " Keybindings ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
     ];
     for (key, desc) in &keybindings {
@@ -174,7 +184,10 @@ fn draw_help_overlay(frame: &mut Frame) {
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  Press any key to close", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(
+        "  Press any key to close",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let block = Block::default()
         .borders(Borders::ALL)

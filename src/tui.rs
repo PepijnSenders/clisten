@@ -1,19 +1,20 @@
-// src/tui.rs
+// Terminal backend: raw-mode setup, event polling, and tick generation.
+// Wraps crossterm + ratatui so the rest of the app just sees key/resize/tick events.
 
-use std::time::Duration;
 use crossterm::{
     event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind},
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use futures::StreamExt;
+use futures_util::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::time::Duration;
 use tokio::sync::mpsc;
 
-pub type CrosstermTerminal = Terminal<CrosstermBackend<std::io::Stderr>>;
+type CrosstermTerminal = Terminal<CrosstermBackend<std::io::Stderr>>;
 
 pub struct Tui {
-    pub terminal: CrosstermTerminal,
+    terminal: CrosstermTerminal,
     pub event_rx: mpsc::UnboundedReceiver<TuiEvent>,
     event_tx: mpsc::UnboundedSender<TuiEvent>,
     frame_rate: f64,
@@ -22,7 +23,7 @@ pub struct Tui {
 #[derive(Debug)]
 pub enum TuiEvent {
     Key(KeyEvent),
-    Resize(u16, u16),
+    Resize,
     Tick,
 }
 
@@ -31,7 +32,12 @@ impl Tui {
         let backend = CrosstermBackend::new(std::io::stderr());
         let terminal = Terminal::new(backend)?;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        Ok(Self { terminal, event_rx, event_tx, frame_rate })
+        Ok(Self {
+            terminal,
+            event_rx,
+            event_tx,
+            frame_rate,
+        })
     }
 
     pub fn enter(&mut self) -> anyhow::Result<()> {
@@ -67,8 +73,8 @@ impl Tui {
                                     tx.send(TuiEvent::Key(key)).ok();
                                 }
                             }
-                            Some(Ok(CrosstermEvent::Resize(w, h))) => {
-                                tx.send(TuiEvent::Resize(w, h)).ok();
+                            Some(Ok(CrosstermEvent::Resize(..))) => {
+                                tx.send(TuiEvent::Resize).ok();
                             }
                             Some(Err(_)) | None => break,
                             _ => {}

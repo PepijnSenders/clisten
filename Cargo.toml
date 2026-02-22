@@ -2,7 +2,12 @@
 name = "clisten"
 version = "0.1.0"
 edition = "2021"
-description = "NTS Radio TUI player"
+description = "Terminal UI for NTS Radio — browse live streams, curated picks, and 120+ genres"
+license = "MIT"
+repository = "https://github.com/PepijnSenders/clisten"
+readme = "README.md"
+keywords = ["nts", "radio", "tui", "terminal", "music"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 # TUI
@@ -10,11 +15,11 @@ ratatui = { version = "0.30", features = ["crossterm"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
-futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "net", "io-util"] }
+futures-util = "0.3"
 
 # HTTP
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -24,22 +29,15 @@ toml = "0.8"
 # Database
 rusqlite = { version = "0.31", features = ["bundled"] }
 
-# CLI
-clap = { version = "4.0", features = ["derive"] }
-
 # Error handling
 anyhow = "1.0"
-color-eyre = "0.6"
 
 # Logging
-tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
 # Utilities
-chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
-strum = { version = "0.26", features = ["derive"] }
 which = "7"
 
 [dev-dependencies]

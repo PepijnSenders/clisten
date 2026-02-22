@@ -1,4 +1,4 @@
-// src/components/direct_play_modal.rs
+// Modal dialog for pasting a URL to play directly (press `o` to open).
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -14,6 +14,7 @@ use crate::action::Action;
 use crate::api::models::DiscoveryItem;
 use crate::components::Component;
 
+#[derive(Default)]
 pub struct DirectPlayModal {
     action_tx: Option<UnboundedSender<Action>>,
     visible: bool,
@@ -23,12 +24,7 @@ pub struct DirectPlayModal {
 
 impl DirectPlayModal {
     pub fn new() -> Self {
-        Self {
-            action_tx: None,
-            visible: false,
-            input: String::new(),
-            error: None,
-        }
+        Self::default()
     }
 
     pub fn is_visible(&self) -> bool {
@@ -117,7 +113,11 @@ impl Component for DirectPlayModal {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(" Open URL ")
-            .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            .title_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
 
         let inner = block.inner(overlay_area);
         frame.render_widget(block, overlay_area);

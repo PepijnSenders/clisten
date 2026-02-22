@@ -9,36 +9,44 @@ use ratatui::{layout::Rect, style::Color, Frame};
 
 /// Three color palettes the visualizer cycles through over time.
 const PALETTES: &[&[Color]; 3] = &[
-    &[Color::Cyan, Color::Blue, Color::Magenta, Color::LightMagenta],
+    &[
+        Color::Cyan,
+        Color::Blue,
+        Color::Magenta,
+        Color::LightMagenta,
+    ],
     &[Color::Yellow, Color::Red, Color::Magenta, Color::LightRed],
     &[Color::Green, Color::Cyan, Color::White, Color::LightGreen],
 ];
 
 /// Animated blob state. Call `tick()` each frame, then `draw()` to render.
+#[derive(Default)]
 pub struct BlobVisualizer {
-    pub phase: f64,
-    pub color_phase: f64,
-    pub intensity: f32,
-    pub beat: f64,
+    phase: f64,
+    color_phase: f64,
+    intensity: f32,
+    beat: f64,
     prev_position: f64,
+    prev_rms: f64,
 }
 
 impl BlobVisualizer {
-    pub fn new() -> Self {
-        Self {
-            phase: 0.0,
-            color_phase: 0.0,
-            intensity: 0.0,
-            beat: 0.0,
-            prev_position: 0.0,
-        }
-    }
-
     /// Advance animation state for one frame.
     ///
     /// `position_secs` is the current playback position — used to detect
     /// whether audio is actually advancing (for beat reactivity).
-    pub fn tick(&mut self, playing: bool, paused: bool, buffering: bool, position_secs: f64) {
+    /// `audio_rms` and `audio_peak` are linear 0.0–1.0 levels from the astats filter.
+    pub fn tick(
+        &mut self,
+        playing: bool,
+        paused: bool,
+        buffering: bool,
+        position_secs: f64,
+        audio_rms: f64,
+        audio_peak: f64,
+    ) {
+        let has_audio_levels = audio_rms > 0.0 || self.prev_rms > 0.0;
+
         if playing {
             if buffering {
                 self.phase += 0.04;
@@ -46,11 +54,31 @@ impl BlobVisualizer {
                 self.beat = 0.0;
             } else if paused {
                 self.beat = 0.0;
+            } else if has_audio_levels {
+                // Real audio-reactive mode
+                let smoothed = self.prev_rms * 0.3 + audio_rms * 0.7;
+                self.prev_rms = smoothed;
+
+                // Beat from real audio energy (squared for sharper response)
+                self.beat = smoothed * smoothed;
+
+                // Detect transients: peak much louder than RMS = sharp hit
+                let transient = if smoothed > 0.01 {
+                    (audio_peak / smoothed.max(0.01) - 1.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                self.beat = (self.beat + transient * 0.5).clamp(0.0, 1.0);
+
+                // Modulate phase speed with audio energy
+                self.phase += 0.06 + 0.1 * smoothed + 0.05 * transient;
+                self.color_phase += 0.003 + 0.002 * smoothed;
             } else {
+                // Fallback: synthetic beat from position delta (no audio levels available)
                 let pos_delta = position_secs - self.prev_position;
                 if pos_delta > 0.0 {
                     let raw = (self.phase * 2.5).sin() * 0.5 + 0.5;
-                    self.beat = raw * raw * raw * raw; // ^4 for sharp peaks
+                    self.beat = raw * raw * raw * raw;
                 } else {
                     self.beat *= 0.9;
                 }
@@ -61,6 +89,7 @@ impl BlobVisualizer {
             self.phase += 0.01;
             self.color_phase += 0.003;
             self.beat = 0.0;
+            self.prev_rms = 0.0;
         }
         self.prev_position = position_secs;
 
@@ -107,9 +136,14 @@ impl BlobVisualizer {
         // Braille dot bit positions and their (dx, dy) within a 2x4 cell
         let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
         let dot_offsets: [(usize, usize); 8] = [
-            (0, 0), (0, 1), (0, 2),
-            (1, 0), (1, 1), (1, 2),
-            (0, 3), (1, 3),
+            (0, 0),
+            (0, 1),
+            (0, 2),
+            (1, 0),
+            (1, 1),
+            (1, 2),
+            (0, 3),
+            (1, 3),
         ];
 
         for row in 0..rows {
@@ -174,12 +208,15 @@ impl BlobVisualizer {
         // Playing — active with beat modulation
         let breathing = 0.95 + 0.05 * (self.phase * 0.5).sin();
         let base = 0.6 * breathing;
-        (base, [
-            0.10 * beat_mod,
-            0.12 * beat_mod,
-            0.08 * beat_mod,
-            0.15 * beat_mod,
-        ])
+        (
+            base,
+            [
+                0.10 * beat_mod,
+                0.12 * beat_mod,
+                0.08 * beat_mod,
+                0.15 * beat_mod,
+            ],
+        )
     }
 
     /// Polar radius of the blob at a given angle — sum of sinusoids.
@@ -199,7 +236,15 @@ impl BlobVisualizer {
         let next = (idx + 1) % PALETTES.len();
         let blend = palette_f.fract() as f32;
 
-        let zone = if dr < 0.4 { 0 } else if dr < 0.7 { 1 } else if dr < 0.9 { 2 } else { 3 };
+        let zone = if dr < 0.4 {
+            0
+        } else if dr < 0.7 {
+            1
+        } else if dr < 0.9 {
+            2
+        } else {
+            3
+        };
 
         blend_colors(PALETTES[idx][zone], PALETTES[next][zone], blend)
     }

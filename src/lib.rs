@@ -7,6 +7,6 @@ pub mod components;
 pub mod config;
 pub mod db;
 pub mod logging;
-pub mod ui;
 pub mod player;
 pub mod tui;
+pub mod ui;

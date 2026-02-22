@@ -1,10 +1,8 @@
-// tests/phase1_scaffolding.rs
-//
-// Phase 1 acceptance tests — scaffolding, config, components
+// Config parsing, component state, and key event handling.
 
 use clisten::config::Config;
 
-// ── 1.3 Config Tests ──
+// ── Config ──
 
 #[test]
 fn test_config_default_values() {
@@ -28,16 +26,16 @@ fn test_config_missing_file_uses_defaults() {
     assert_eq!(config.general.frame_rate, 30.0);
 }
 
-// ── 1.5 Component Tests ──
+// ── Components ──
 
 mod component_tests {
+    use clisten::action::Action;
     use clisten::components::discovery_list::DiscoveryList;
-    use clisten::components::search_bar::SearchBar;
     use clisten::components::now_playing::NowPlaying;
     use clisten::components::play_controls::PlayControls;
+    use clisten::components::search_bar::SearchBar;
     use clisten::components::Component;
-    use clisten::action::Action;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, KeyEventKind, KeyEventState};
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use tokio::sync::mpsc;
 
     fn make_key(code: KeyCode) -> KeyEvent {
@@ -67,9 +65,9 @@ mod component_tests {
                 genres: vec![],
             },
         ]);
-        assert_eq!(list.state.selected(), Some(0));
+        assert_eq!(list.selected_index(), Some(0));
         list.handle_key_event(make_key(KeyCode::Char('j'))).unwrap();
-        assert_eq!(list.state.selected(), Some(1));
+        assert_eq!(list.selected_index(), Some(1));
     }
 
     #[test]
@@ -91,9 +89,9 @@ mod component_tests {
             },
         ]);
         list.handle_key_event(make_key(KeyCode::Char('j'))).unwrap();
-        assert_eq!(list.state.selected(), Some(1));
+        assert_eq!(list.selected_index(), Some(1));
         list.handle_key_event(make_key(KeyCode::Char('k'))).unwrap();
-        assert_eq!(list.state.selected(), Some(0));
+        assert_eq!(list.selected_index(), Some(0));
     }
 
     #[test]
@@ -102,19 +100,17 @@ mod component_tests {
         let (tx, _rx) = mpsc::unbounded_channel::<Action>();
         let mut list = DiscoveryList::new();
         list.register_action_handler(tx);
-        list.set_items(vec![
-            DiscoveryItem::NtsLiveChannel {
-                channel: 1,
-                show_name: "Show 1".to_string(),
-                genres: vec![],
-            },
-        ]);
+        list.set_items(vec![DiscoveryItem::NtsLiveChannel {
+            channel: 1,
+            show_name: "Show 1".to_string(),
+            genres: vec![],
+        }]);
         // At first item, k should stay at 0
         list.handle_key_event(make_key(KeyCode::Char('k'))).unwrap();
-        assert_eq!(list.state.selected(), Some(0));
+        assert_eq!(list.selected_index(), Some(0));
         // At last item (index 0 of 1), j should stay at 0
         list.handle_key_event(make_key(KeyCode::Char('j'))).unwrap();
-        assert_eq!(list.state.selected(), Some(0));
+        assert_eq!(list.selected_index(), Some(0));
     }
 
     #[test]
@@ -135,7 +131,7 @@ mod component_tests {
         bar.update(&Action::FocusSearch).unwrap();
         bar.update(&Action::Back).unwrap();
         assert!(!bar.is_focused());
-        assert_eq!(bar.input, "");
+        assert_eq!(bar.input(), "");
     }
 
     #[test]
@@ -147,7 +143,7 @@ mod component_tests {
         bar.handle_key_event(make_key(KeyCode::Char('a'))).unwrap();
         bar.handle_key_event(make_key(KeyCode::Char('b'))).unwrap();
         bar.handle_key_event(make_key(KeyCode::Char('c'))).unwrap();
-        assert_eq!(bar.input, "abc");
+        assert_eq!(bar.input(), "abc");
     }
 
     #[test]
@@ -155,9 +151,9 @@ mod component_tests {
         let (tx, _rx) = mpsc::unbounded_channel::<Action>();
         let mut np = NowPlaying::new();
         np.register_action_handler(tx);
-        assert!(np.current_item.is_none());
-        assert_eq!(np.position_secs, 0.0);
-        assert!(!np.paused);
+        assert!(!np.is_playing());
+        assert_eq!(np.position_secs(), 0.0);
+        assert!(!np.is_paused());
     }
 
     #[test]
@@ -165,13 +161,13 @@ mod component_tests {
         let (tx, _rx) = mpsc::unbounded_channel::<Action>();
         let mut pc = PlayControls::new();
         pc.register_action_handler(tx);
-        assert!(!pc.playing);
-        assert!(!pc.paused);
-        assert_eq!(pc.queue_len, 0);
+        assert!(!pc.is_playing());
+        assert!(!pc.is_paused());
+        assert_eq!(pc.queue_len(), 0);
     }
 }
 
-// ── 1.6 App Action Tests ──
+// ── App actions ──
 
 mod app_action_tests {
     use clisten::action::Action;
@@ -179,7 +175,7 @@ mod app_action_tests {
 
     #[test]
     fn test_quit_sends_action() {
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, KeyEventKind, KeyEventState};
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
         let key = KeyEvent {
             code: KeyCode::Char('q'),
@@ -196,7 +192,7 @@ mod app_action_tests {
     fn test_quit_ignored_in_search() {
         use clisten::components::search_bar::SearchBar;
         use clisten::components::Component;
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, KeyEventKind, KeyEventState};
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
         let (tx, _rx) = mpsc::unbounded_channel::<Action>();
         let mut bar = SearchBar::new();
@@ -211,6 +207,6 @@ mod app_action_tests {
         };
         let consumed = bar.handle_key_event(key).unwrap();
         assert!(consumed, "q in search mode should be consumed");
-        assert_eq!(bar.input, "q");
+        assert_eq!(bar.input(), "q");
     }
 }

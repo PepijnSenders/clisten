@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::api::models::DiscoveryItem;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // fields read in integration tests
 pub struct FavoriteRecord {
     pub id: i64,
     pub key: String,
@@ -20,7 +20,7 @@ pub struct FavoriteRecord {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // fields read in integration tests
 pub struct HistoryRecord {
     pub id: i64,
     pub key: String,
@@ -31,6 +31,21 @@ pub struct HistoryRecord {
     pub duration_secs: Option<u64>,
 }
 
+fn map_favorite_row(row: &rusqlite::Row) -> rusqlite::Result<FavoriteRecord> {
+    Ok(FavoriteRecord {
+        id: row.get(0)?,
+        key: row.get(1)?,
+        source: row.get(2)?,
+        item_type: row.get(3)?,
+        title: row.get(4)?,
+        url: row.get(5)?,
+        metadata_json: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+/// SQLite-backed store for favorites and listening history.
+/// Data is persisted at `~/.local/share/clisten/clisten.db`.
 pub struct Database {
     conn: Connection,
 }
@@ -49,7 +64,7 @@ impl Database {
         Ok(db)
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn open_at(path: &std::path::Path) -> anyhow::Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -73,8 +88,6 @@ impl Database {
         let (source, item_type) = match item {
             DiscoveryItem::NtsLiveChannel { .. } => ("nts", "live"),
             DiscoveryItem::NtsEpisode { .. } => ("nts", "episode"),
-            DiscoveryItem::NtsMixtape { .. } => ("nts", "mixtape"),
-            DiscoveryItem::NtsShow { .. } => ("nts", "show"),
             DiscoveryItem::DirectUrl { .. } => ("direct", "url"),
             DiscoveryItem::NtsGenre { .. } => return Ok(()), // genres aren't favoritable
         };
@@ -91,11 +104,12 @@ impl Database {
     }
 
     pub fn remove_favorite(&self, key: &str) -> anyhow::Result<()> {
-        self.conn.execute("DELETE FROM favorites WHERE key = ?1", params![key])?;
+        self.conn
+            .execute("DELETE FROM favorites WHERE key = ?1", params![key])?;
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn is_favorite(&self, key: &str) -> anyhow::Result<bool> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM favorites WHERE key = ?1",
@@ -111,42 +125,24 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> anyhow::Result<Vec<FavoriteRecord>> {
-        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match source {
-            Some(s) => (
-                "SELECT id, key, source, item_type, title, url, metadata_json, created_at
-                 FROM favorites WHERE source = ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
-                    .to_string(),
-                vec![Box::new(s.to_string()), Box::new(limit), Box::new(offset)],
-            ),
-            None => (
-                "SELECT id, key, source, item_type, title, url, metadata_json, created_at
-                 FROM favorites ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
-                    .to_string(),
-                vec![Box::new(limit), Box::new(offset)],
-            ),
-        };
-
-        let mut stmt = self.conn.prepare(&sql)?;
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-            params_vec.iter().map(|p| p.as_ref()).collect();
-        let rows = stmt.query_map(params_refs.as_slice(), |row| {
-            Ok(FavoriteRecord {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                source: row.get(2)?,
-                item_type: row.get(3)?,
-                title: row.get(4)?,
-                url: row.get(5)?,
-                metadata_json: row.get(6)?,
-                created_at: row.get(7)?,
-            })
-        })?;
-
-        let mut results = vec![];
-        for row in rows {
-            results.push(row?);
+        match source {
+            Some(s) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, key, source, item_type, title, url, metadata_json, created_at
+                     FROM favorites WHERE source = ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(params![s, limit, offset], map_favorite_row)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+            }
+            None => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, key, source, item_type, title, url, metadata_json, created_at
+                     FROM favorites ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+                )?;
+                let rows = stmt.query_map(params![limit, offset], map_favorite_row)?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+            }
         }
-        Ok(results)
     }
 
     // ── History ──
@@ -156,8 +152,6 @@ impl Database {
         let source = match item {
             DiscoveryItem::NtsLiveChannel { .. } => "nts",
             DiscoveryItem::NtsEpisode { .. } => "nts",
-            DiscoveryItem::NtsMixtape { .. } => "nts",
-            DiscoveryItem::NtsShow { .. } => "nts",
             DiscoveryItem::DirectUrl { .. } => "direct",
             DiscoveryItem::NtsGenre { .. } => return Ok(()), // genres aren't historied
         };
@@ -187,78 +181,64 @@ impl Database {
                 duration_secs: row.get(6)?,
             })
         })?;
-
-        let mut results = vec![];
-        for row in rows {
-            results.push(row?);
-        }
-        Ok(results)
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // used by integration tests
     pub fn clear_history(&self) -> anyhow::Result<()> {
         self.conn.execute("DELETE FROM history", [])?;
         Ok(())
     }
 }
 
+/// Reconstruct a DiscoveryItem from stored record fields.
+fn record_to_discovery_item(
+    source: &str,
+    item_type: &str,
+    key: &str,
+    title: &str,
+    url: &Option<String>,
+) -> DiscoveryItem {
+    match (source, item_type) {
+        ("nts", "live") => DiscoveryItem::NtsLiveChannel {
+            channel: 1,
+            show_name: title.to_string(),
+            genres: vec![],
+        },
+        ("direct", _) => DiscoveryItem::DirectUrl {
+            url: url.clone().unwrap_or_default(),
+            title: Some(title.to_string()),
+        },
+        _ => DiscoveryItem::NtsEpisode {
+            name: title.to_string(),
+            show_alias: String::new(),
+            episode_alias: key.to_string(),
+            genres: vec![],
+            location: None,
+            audio_url: url.clone(),
+        },
+    }
+}
+
 impl FavoriteRecord {
-    /// Convert a stored favorite record back to a DiscoveryItem.
-    pub fn to_discovery_item(&self) -> crate::api::models::DiscoveryItem {
-        use crate::api::models::DiscoveryItem;
-        match (self.source.as_str(), self.item_type.as_str()) {
-            ("nts", "episode") => DiscoveryItem::NtsEpisode {
-                name: self.title.clone(),
-                show_alias: String::new(),
-                episode_alias: self.key.clone(),
-                genres: vec![],
-                location: None,
-                audio_url: self.url.clone(),
-            },
-            ("nts", "mixtape") => DiscoveryItem::NtsMixtape {
-                title: self.title.clone(),
-                subtitle: String::new(),
-                stream_url: self.url.clone().unwrap_or_default(),
-                mixtape_alias: self.key.clone(),
-            },
-            ("nts", "live") => DiscoveryItem::NtsLiveChannel {
-                channel: 1,
-                show_name: self.title.clone(),
-                genres: vec![],
-            },
-            ("direct", "url") => DiscoveryItem::DirectUrl {
-                url: self.url.clone().unwrap_or_default(),
-                title: Some(self.title.clone()),
-            },
-            _ => DiscoveryItem::NtsEpisode {
-                name: self.title.clone(),
-                show_alias: String::new(),
-                episode_alias: self.key.clone(),
-                genres: vec![],
-                location: None,
-                audio_url: self.url.clone(),
-            },
-        }
+    pub fn to_discovery_item(&self) -> DiscoveryItem {
+        record_to_discovery_item(
+            &self.source,
+            &self.item_type,
+            &self.key,
+            &self.title,
+            &self.url,
+        )
     }
 }
 
 impl HistoryRecord {
-    /// Convert a stored history record back to a DiscoveryItem.
-    pub fn to_discovery_item(&self) -> crate::api::models::DiscoveryItem {
-        use crate::api::models::DiscoveryItem;
-        match self.source.as_str() {
-            "direct" => DiscoveryItem::DirectUrl {
-                url: self.url.clone().unwrap_or_default(),
-                title: Some(self.title.clone()),
-            },
-            _ => DiscoveryItem::NtsEpisode {
-                name: self.title.clone(),
-                show_alias: String::new(),
-                episode_alias: self.key.clone(),
-                genres: vec![],
-                location: None,
-                audio_url: self.url.clone(),
-            },
-        }
+    pub fn to_discovery_item(&self) -> DiscoveryItem {
+        // History records don't store item_type — infer from source.
+        let item_type = match self.source.as_str() {
+            "direct" => "url",
+            _ => "episode",
+        };
+        record_to_discovery_item(&self.source, item_type, &self.key, &self.title, &self.url)
     }
 }
