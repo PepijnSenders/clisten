@@ -5,7 +5,6 @@ mod fetch;
 mod input;
 mod playback;
 
-use std::collections::HashSet;
 use tokio::sync::mpsc;
 
 use crate::action::Action;
@@ -44,7 +43,6 @@ pub struct App {
     player: MpvPlayer,
     pub(crate) db: Database,
     pub(crate) config: Config,
-    pub(crate) favorites: HashSet<String>,
     pub queue: Queue,
     pub show_help: bool,
     pub error_message: Option<String>,
@@ -57,11 +55,7 @@ impl App {
     pub fn new(config: Config) -> anyhow::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let db = Database::open()?;
-        let favorites: HashSet<String> = db
-            .list_favorites(None, 10000, 0)?
-            .into_iter()
-            .map(|f| f.key)
-            .collect();
+        let queue = Self::restore_queue(&db);
 
         let mut nts_tab = NtsTab::new();
         let mut discovery_list = DiscoveryList::new();
@@ -81,10 +75,17 @@ impl App {
             component.register_action_handler(action_tx.clone());
         }
 
-        discovery_list.set_favorites(favorites.clone());
-
         let mut player = MpvPlayer::new();
         player.set_action_tx(action_tx.clone());
+
+        // Sync restored queue to UI components
+        play_controls.set_queue_info(queue.current_index(), queue.len());
+        let queue_display: Vec<(String, String)> = queue
+            .items()
+            .iter()
+            .map(|qi| (qi.item.display_title(), qi.item.subtitle()))
+            .collect();
+        now_playing.set_queue(queue_display, queue.current_index());
 
         Ok(Self {
             running: true,
@@ -100,8 +101,7 @@ impl App {
             player,
             db,
             config,
-            favorites,
-            queue: Queue::new(),
+            queue,
             show_help: false,
             error_message: None,
             search_id: 0,
@@ -172,16 +172,12 @@ impl App {
             // Queue
             Action::AddToQueue(ref item) => self.enqueue(item.clone(), false),
             Action::AddToQueueNext(ref item) => self.enqueue(item.clone(), true),
+            Action::RemoveFromQueue => self.remove_current_from_queue().await?,
             Action::ClearQueue => {
                 self.queue.clear();
                 self.play_controls.set_queue_info(None, 0);
                 self.sync_queue_to_now_playing();
-            }
-
-            // Favorites & history
-            Action::ToggleFavorite => self.toggle_favorite()?,
-            Action::AddToHistory(ref item) => {
-                let _ = self.db.add_to_history(item);
+                self.persist_queue();
             }
 
             // Data loading
@@ -303,22 +299,6 @@ impl App {
         Ok(())
     }
 
-    fn toggle_favorite(&mut self) -> anyhow::Result<()> {
-        let Some(item) = self.discovery_list.selected_item().cloned() else {
-            return Ok(());
-        };
-        let key = item.favorite_key();
-        if self.favorites.contains(&key) {
-            self.db.remove_favorite(&key)?;
-            self.favorites.remove(&key);
-        } else {
-            self.db.add_favorite(&item)?;
-            self.favorites.insert(key);
-        }
-        self.discovery_list.set_favorites(self.favorites.clone());
-        Ok(())
-    }
-
     fn switch_sub_tab(&mut self, idx: usize) -> anyhow::Result<()> {
         self.discovery_list.set_items(vec![]);
         self.discovery_list.set_loading(true);
@@ -339,6 +319,23 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn persist_queue(&self) {
+        let _ = self.db.save_queue(self.queue.items(), self.queue.current_index());
+    }
+
+    fn restore_queue(db: &Database) -> Queue {
+        let mut queue = Queue::new();
+        if let Ok((items, current_index)) = db.load_queue() {
+            for qi in items {
+                queue.add(qi);
+            }
+            if let Some(idx) = current_index {
+                queue.play_at(idx);
+            }
+        }
+        queue
     }
 
     #[allow(dead_code)] // used by integration tests

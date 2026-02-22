@@ -53,7 +53,7 @@ impl App {
             Char('p') => self.action_tx.send(Action::PrevTrack)?,
             Char('s') => self.action_tx.send(Action::Stop)?,
             Char('/') => self.action_tx.send(Action::FocusSearch)?,
-            Char('f') => self.action_tx.send(Action::ToggleFavorite)?,
+            Char('d') => self.action_tx.send(Action::RemoveFromQueue)?,
             Char('c') => self.action_tx.send(Action::ClearQueue)?,
             Char(']') => self.action_tx.send(Action::VolumeUp)?,
             Char('[') => self.action_tx.send(Action::VolumeDown)?,

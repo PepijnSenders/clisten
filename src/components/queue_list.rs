@@ -71,4 +71,29 @@ pub fn draw(frame: &mut Frame, area: Rect, items: &[(String, String)], current: 
         .collect();
 
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+
+    // Key hints at bottom of queue area
+    if area.height >= 4 {
+        let hint_y = area.y + area.height - 1;
+        let hint_area = Rect {
+            x: area.x + 1,
+            y: hint_y,
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+        let hints = Line::from(vec![
+            Span::styled("d", Style::default().fg(Color::White)),
+            Span::styled(" Remove ", Style::default().fg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+            Span::styled(" c", Style::default().fg(Color::White)),
+            Span::styled(" Clear ", Style::default().fg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+            Span::styled(" n", Style::default().fg(Color::White)),
+            Span::styled(" Next ", Style::default().fg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+            Span::styled(" p", Style::default().fg(Color::White)),
+            Span::styled(" Prev", Style::default().fg(Color::DarkGray)),
+        ]);
+        frame.render_widget(Paragraph::new(hints), hint_area);
+    }
 }

@@ -237,6 +237,7 @@ async fn test_help_toggle_off() {
 #[tokio::test]
 async fn test_add_to_queue() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
         .unwrap();
@@ -247,6 +248,7 @@ async fn test_add_to_queue() {
 #[tokio::test]
 async fn test_add_to_queue_next() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
         .unwrap();
@@ -264,6 +266,7 @@ async fn test_add_to_queue_next() {
 async fn test_key_a_adds_to_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    app.queue.clear();
     // Set a selected item in discovery_list
     app.discovery_list.set_items(vec![make_item("track1")]);
 
@@ -291,6 +294,7 @@ async fn test_key_c_clears_queue() {
 #[tokio::test]
 async fn test_playback_finished_advances_queue() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
         .unwrap();
@@ -306,6 +310,7 @@ async fn test_playback_finished_advances_queue() {
 #[tokio::test]
 async fn test_playback_finished_empty_queue() {
     let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    app.queue.clear();
     // No queue — PlaybackFinished should not panic
     app.handle_action(Action::PlaybackFinished).await.unwrap();
     assert!(app.queue.is_empty());

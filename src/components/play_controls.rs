@@ -165,9 +165,6 @@ impl Component for PlayControls {
             Span::styled("p", key_style),
             Span::styled(" Prev", desc_style),
             div.clone(),
-            Span::styled("f", key_style),
-            Span::styled(" Fav", desc_style),
-            div.clone(),
             Span::styled("o", key_style),
             Span::styled(" URL", desc_style),
         ];
