@@ -54,6 +54,7 @@ impl Component for SearchBar {
             }
             KeyCode::Enter => {
                 if !self.input.is_empty() {
+                    self.focused = false;
                     tx.send(Action::SearchSubmit)?;
                 }
                 Ok(true)
@@ -77,8 +78,7 @@ impl Component for SearchBar {
                 self.input.clear();
             }
             Action::SearchSubmit => {
-                // Clear input and unfocus after submit
-                self.input.clear();
+                // Keep input visible so user can see what they searched for
                 self.focused = false;
             }
             _ => {}
@@ -95,8 +95,10 @@ impl Component for SearchBar {
 
         let display = if self.input.is_empty() && !self.focused {
             "/ Search...".to_string()
-        } else {
+        } else if self.focused {
             format!("/ {}_", self.input)
+        } else {
+            format!("/ {}", self.input)
         };
 
         let paragraph = Paragraph::new(display).style(style);

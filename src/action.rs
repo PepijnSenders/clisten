@@ -48,14 +48,14 @@ pub enum Action {
     SearchByGenre {
         genre_id: String,
     },
+    SearchByQuery {
+        query: String,
+    },
     SearchResultsPartial {
         search_id: u64,
         items: Vec<DiscoveryItem>,
         done: bool,
     },
-
-    FilterList(String),
-    ClearFilter,
 
     VolumeUp,
     VolumeDown,

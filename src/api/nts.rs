@@ -78,6 +78,32 @@ impl NtsClient {
             .map(search_episode_to_discovery)
             .collect())
     }
+    pub async fn search_episodes_by_query(
+        &self,
+        query: &str,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<DiscoveryItem>> {
+        let resp: NtsSearchResponse = self
+            .http
+            .get(format!("{}/api/v2/search", NTS_BASE))
+            .query(&[
+                ("q", query),
+                ("version", "2"),
+                ("types[]", "episode"),
+            ])
+            .query(&[("offset", offset), ("limit", limit)])
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp
+            .results
+            .into_iter()
+            .map(search_episode_to_discovery)
+            .collect())
+    }
 }
 
 fn episode_to_discovery(ep: NtsEpisodeDetail) -> DiscoveryItem {
