@@ -82,7 +82,10 @@ pub fn draw(frame: &mut Frame, area: Rect, items: &[(String, String)], current: 
             height: 1,
         };
         let hints = Line::from(vec![
-            Span::styled("c", Style::default().fg(Color::White)),
+            Span::styled("d", Style::default().fg(Color::White)),
+            Span::styled(" Remove ", Style::default().fg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::DarkGray)),
+            Span::styled(" c", Style::default().fg(Color::White)),
             Span::styled(" Clear ", Style::default().fg(Color::DarkGray)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
             Span::styled(" n", Style::default().fg(Color::White)),

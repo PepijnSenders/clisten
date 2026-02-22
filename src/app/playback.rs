@@ -65,6 +65,39 @@ impl App {
         Ok(())
     }
 
+    /// Remove the current track from the queue. If there's a next track, play it;
+    /// otherwise stop playback.
+    pub(super) async fn remove_current_from_queue(&mut self) -> anyhow::Result<()> {
+        let Some(idx) = self.queue.current_index() else {
+            return Ok(());
+        };
+        self.queue.remove(idx);
+        if self.queue.is_empty() {
+            let _ = self.player.stop().await;
+            self.now_playing.update(&Action::PlaybackFinished)?;
+            self.play_controls.update(&Action::PlaybackFinished)?;
+        } else {
+            // After remove, current_index is adjusted by Queue::remove.
+            // Play whatever is now at the current position.
+            if let Some(track) = self.queue.current() {
+                let url = track.url.clone();
+                let title = track.item.display_title();
+                let item = track.item.clone();
+                self.now_playing.set_buffering(item);
+                self.play_controls.set_buffering(true);
+                if let Err(e) = self.player.play(&url).await {
+                    self.action_tx.send(Action::ShowError(e.to_string()))?;
+                } else {
+                    self.action_tx.send(Action::PlaybackStarted { title })?;
+                }
+            }
+        }
+        self.sync_play_controls();
+        self.sync_queue_to_now_playing();
+        self.persist_queue();
+        Ok(())
+    }
+
     pub(super) async fn adjust_volume(&mut self, delta: f64) -> anyhow::Result<()> {
         let _ = self.player.set_volume(delta).await;
         if let Ok(vol) = self.player.get_volume().await {

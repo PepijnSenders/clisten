@@ -172,6 +172,7 @@ impl App {
             // Queue
             Action::AddToQueue(ref item) => self.enqueue(item.clone(), false),
             Action::AddToQueueNext(ref item) => self.enqueue(item.clone(), true),
+            Action::RemoveFromQueue => self.remove_current_from_queue().await?,
             Action::ClearQueue => {
                 self.queue.clear();
                 self.play_controls.set_queue_info(None, 0);

@@ -161,6 +161,7 @@ fn draw_help_overlay(frame: &mut Frame) {
         ("o", "Open URL (direct play)"),
         ("/", "Focus search bar"),
         ("Escape", "Unfocus search / go back"),
+        ("d", "Remove current from queue"),
         ("c", "Clear queue"),
         ("[ ]", "Volume down/up"),
         ("?", "Toggle this help overlay"),

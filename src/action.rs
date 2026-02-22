@@ -35,6 +35,7 @@ pub enum Action {
 
     AddToQueue(DiscoveryItem),
     AddToQueueNext(DiscoveryItem),
+    RemoveFromQueue,
     ClearQueue,
 
     LoadNtsLive,
