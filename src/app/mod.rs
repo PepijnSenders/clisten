@@ -78,6 +78,15 @@ impl App {
         let mut player = MpvPlayer::new();
         player.set_action_tx(action_tx.clone());
 
+        // Sync restored queue to UI components
+        play_controls.set_queue_info(queue.current_index(), queue.len());
+        let queue_display: Vec<(String, String)> = queue
+            .items()
+            .iter()
+            .map(|qi| (qi.item.display_title(), qi.item.subtitle()))
+            .collect();
+        now_playing.set_queue(queue_display, queue.current_index());
+
         Ok(Self {
             running: true,
             action_tx,
