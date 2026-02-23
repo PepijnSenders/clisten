@@ -64,6 +64,19 @@ pub enum Action {
     OpenDirectPlay,
     CloseDirectPlay,
 
+    PlaybackDuration(Option<f64>),
+    SeekRelative(f64),
+    OpenSeekModal,
+    CloseSeekModal,
+
+    CycleVisualizer,
+    ToggleSkipIntro,
+    OnboardingComplete {
+        theme: String,
+        completed_screens: Vec<String>,
+    },
+    ShowOnboarding,
+
     ShowError(String),
     ClearError,
     ShowHelp,

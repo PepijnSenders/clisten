@@ -46,15 +46,18 @@ impl Database {
 
     // ── Queue persistence ──
 
-    pub fn save_queue(&self, items: &[QueueItem], current_index: Option<usize>) -> anyhow::Result<()> {
+    pub fn save_queue(
+        &self,
+        items: &[QueueItem],
+        current_index: Option<usize>,
+    ) -> anyhow::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM queue", [])?;
         tx.execute("DELETE FROM queue_state", [])?;
 
         {
-            let mut stmt = tx.prepare(
-                "INSERT INTO queue (position, item_json, url) VALUES (?1, ?2, ?3)",
-            )?;
+            let mut stmt =
+                tx.prepare("INSERT INTO queue (position, item_json, url) VALUES (?1, ?2, ?3)")?;
             for (i, qi) in items.iter().enumerate() {
                 let json = serde_json::to_string(&qi.item)?;
                 stmt.execute(params![i as i64, json, qi.url])?;
@@ -73,9 +76,9 @@ impl Database {
     }
 
     pub fn load_queue(&self) -> anyhow::Result<(Vec<QueueItem>, Option<usize>)> {
-        let mut stmt = self.conn.prepare(
-            "SELECT item_json, url FROM queue ORDER BY position ASC",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT item_json, url FROM queue ORDER BY position ASC")?;
         let rows = stmt.query_map([], |row| {
             let json: String = row.get(0)?;
             let url: String = row.get(1)?;

@@ -52,8 +52,12 @@ clisten
 | `s` | Stop playback |
 | `a` | Add to queue |
 | `A` | Add to queue (play next) |
+| `d` | Remove current track from queue |
 | `c` | Clear queue |
-| `f` | Toggle favorite |
+| `← →` | Seek ±5s (accelerates on repeat) |
+| `t` | Open seek timeline |
+| `v` | Cycle visualizer |
+| `i` | Toggle skip NTS intro |
 | `Tab` / `Shift+Tab` | Cycle sub-tabs |
 | `1` `2` `3` | Jump to Live / Picks / Search |
 | `/` | Focus search bar |
@@ -73,7 +77,30 @@ Optional config file at `~/.config/clisten/config.toml`:
 frame_rate = 30.0  # TUI refresh rate (fps)
 ```
 
-Data (favorites, history) is stored in `~/.local/share/clisten/clisten.db`.
+Queue state is stored in `~/.local/share/clisten/clisten.db`.
+
+## Troubleshooting
+
+**No audio / playback not starting**
+- Verify mpv is installed: `mpv --version`
+- Test mpv directly: `mpv https://stream-relay-geo.ntslive.net/stream`
+- If using yt-dlp URLs (SoundCloud, Mixcloud, etc.), ensure yt-dlp is installed: `brew install yt-dlp`
+
+**Blank screen or rendering glitches**
+- Resize the terminal window — clisten needs at least ~80×24
+- Try a different terminal emulator (iTerm2, Alacritty, kitty all work well)
+
+**Stale config or broken state**
+- Reset everything: `rm -rf ~/.config/clisten`
+- This removes your config and re-triggers the onboarding wizard on next launch
+- Your queue is stored separately in `~/.local/share/clisten/` and is not affected
+
+**Database issues**
+- Reset the database: `rm ~/.local/share/clisten/clisten.db`
+- This clears your saved queue
+
+**Re-run the onboarding wizard**
+- Press `?` to open help, then press `Enter`
 
 ## Development
 

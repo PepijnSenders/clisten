@@ -5,7 +5,7 @@ use std::fmt;
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -14,6 +14,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::components::Component;
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum NtsSubTab {
@@ -40,7 +41,7 @@ impl fmt::Display for NtsSubTab {
 #[derive(Default)]
 pub struct NtsTab {
     action_tx: Option<UnboundedSender<Action>>,
-    pub active_sub: NtsSubTab,
+    active_sub: NtsSubTab,
     loaded: HashSet<NtsSubTab>,
 }
 
@@ -71,6 +72,11 @@ impl NtsTab {
         }
     }
 
+    #[allow(dead_code)] // used by integration tests
+    pub fn active_sub(&self) -> NtsSubTab {
+        self.active_sub
+    }
+
     /// Get the current sub-tab index (0-based).
     pub fn active_index(&self) -> usize {
         match self.active_sub {
@@ -91,7 +97,7 @@ impl Component for NtsTab {
         self.action_tx = Some(tx);
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let active_idx = self.active_index();
 
         let mut spans: Vec<Span> = Vec::new();
@@ -99,25 +105,25 @@ impl Component for NtsTab {
 
         for (i, tab) in NtsSubTab::ALL.iter().enumerate() {
             if i > 0 {
-                spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(" │ ", Style::default().fg(theme.border)));
             }
             let label = tab.to_string();
             if i == active_idx {
                 spans.push(Span::styled(
                     label,
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.primary)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 ));
             } else {
-                spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(label, Style::default().fg(theme.text_dim)));
             }
         }
 
         let line = Line::from(spans);
         let block = Block::default()
             .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(theme.border));
         frame.render_widget(Paragraph::new(line).block(block), area);
     }
 }

@@ -24,11 +24,11 @@ fn make_item(title: &str, subtitle: &str) -> DiscoveryItem {
 #[test]
 fn test_sub_tab_bar_renders_nts() {
     let mut nts_tab = NtsTab::new();
-    assert_eq!(format!("{:?}", nts_tab.active_sub), "Live");
+    assert_eq!(format!("{:?}", nts_tab.active_sub()), "Live");
     nts_tab.switch_sub_tab(1);
-    assert_eq!(format!("{:?}", nts_tab.active_sub), "Picks");
+    assert_eq!(format!("{:?}", nts_tab.active_sub()), "Picks");
     nts_tab.switch_sub_tab(2);
-    assert_eq!(format!("{:?}", nts_tab.active_sub), "Search");
+    assert_eq!(format!("{:?}", nts_tab.active_sub()), "Search");
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn test_switch_sub_tab_routes_to_active_tab() {
         "Expected LoadGenres action, got: {:?}",
         actions
     );
-    assert_eq!(format!("{:?}", nts_tab.active_sub), "Search");
+    assert_eq!(format!("{:?}", nts_tab.active_sub()), "Search");
 }
 
 // ── List filtering ───────────────────────────────────────────────────────────
@@ -112,7 +112,11 @@ fn test_search_bar_clears_on_submit() {
     assert_eq!(bar.input(), "jaz");
 
     bar.update(&Action::SearchSubmit).unwrap();
-    assert_eq!(bar.input(), "jaz", "Search bar should preserve input on submit");
+    assert_eq!(
+        bar.input(),
+        "jaz",
+        "Search bar should preserve input on submit"
+    );
     assert!(!bar.is_focused(), "Search bar should unfocus on submit");
 }
 
@@ -137,26 +141,6 @@ fn test_discovery_list_loading_state() {
 // ── Volume control ───────────────────────────────────────────────────────────
 
 #[test]
-fn test_volume_up_action_exists() {
-    let action = Action::VolumeUp;
-    assert!(matches!(action, Action::VolumeUp));
-}
-
-#[test]
-fn test_volume_down_action_exists() {
-    let action = Action::VolumeDown;
-    assert!(matches!(action, Action::VolumeDown));
-}
-
-#[test]
-fn test_bracket_keys_send_volume() {
-    let up = Action::VolumeUp;
-    let down = Action::VolumeDown;
-    assert!(matches!(up, Action::VolumeUp));
-    assert!(matches!(down, Action::VolumeDown));
-}
-
-#[test]
 fn test_play_controls_shows_volume() {
     use clisten::components::play_controls::PlayControls;
     let mut controls = PlayControls::new();
@@ -166,14 +150,6 @@ fn test_play_controls_shows_volume() {
 }
 
 // ── Direct Play Modal ─────────────────────────────────────────────────────────
-
-#[test]
-fn test_direct_play_actions_exist() {
-    let open = Action::OpenDirectPlay;
-    assert!(matches!(open, Action::OpenDirectPlay));
-    let close = Action::CloseDirectPlay;
-    assert!(matches!(close, Action::CloseDirectPlay));
-}
 
 #[test]
 fn test_direct_play_modal_visibility() {

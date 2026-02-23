@@ -1,17 +1,14 @@
 // Text input for filtering the discovery list. Activated with `/`.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Paragraph,
-    Frame,
-};
+use ratatui::{layout::Rect, style::Style, widgets::Paragraph, Frame};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::components::Component;
+use crate::theme::Theme;
 
+/// Text input for live-filtering the discovery list (activated with `/`).
 #[derive(Default)]
 pub struct SearchBar {
     action_tx: Option<UnboundedSender<Action>>,
@@ -86,11 +83,11 @@ impl Component for SearchBar {
         Ok(vec![])
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let style = if self.focused {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(theme.accent)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme.text_dim)
         };
 
         let display = if self.input.is_empty() && !self.focused {

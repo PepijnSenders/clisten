@@ -1,9 +1,13 @@
 // HTTP client for the NTS Radio public API (live streams, picks, genre search).
 
-use crate::api::models::*;
+use crate::api::models::{
+    DiscoveryItem, NtsCollectionResponse, NtsEpisodeDetail, NtsLiveResponse, NtsSearchEpisode,
+    NtsSearchResponse,
+};
 
 const NTS_BASE: &str = "https://www.nts.live";
 
+/// Async HTTP client for the NTS Radio public API.
 #[derive(Clone, Default)]
 pub struct NtsClient {
     http: reqwest::Client,
@@ -14,6 +18,7 @@ impl NtsClient {
         Self::default()
     }
 
+    /// Fetch both live NTS channels and return them as discovery items.
     pub async fn fetch_live(&self) -> anyhow::Result<Vec<DiscoveryItem>> {
         let resp: NtsLiveResponse = self
             .http
@@ -41,6 +46,7 @@ impl NtsClient {
         Ok(items)
     }
 
+    /// Fetch the "NTS Picks" editorial collection.
     pub async fn fetch_picks(&self) -> anyhow::Result<Vec<DiscoveryItem>> {
         let resp: NtsCollectionResponse = self
             .http
@@ -53,6 +59,7 @@ impl NtsClient {
         Ok(resp.results.into_iter().map(episode_to_discovery).collect())
     }
 
+    /// Search episodes by genre, returning one page of results.
     pub async fn search_episodes(
         &self,
         genre_id: &str,
@@ -78,6 +85,8 @@ impl NtsClient {
             .map(search_episode_to_discovery)
             .collect())
     }
+
+    /// Free-text search for episodes, returning one page of results.
     pub async fn search_episodes_by_query(
         &self,
         query: &str,
@@ -87,11 +96,7 @@ impl NtsClient {
         let resp: NtsSearchResponse = self
             .http
             .get(format!("{}/api/v2/search", NTS_BASE))
-            .query(&[
-                ("q", query),
-                ("version", "2"),
-                ("types[]", "episode"),
-            ])
+            .query(&[("q", query), ("version", "2"), ("types[]", "episode")])
             .query(&[("offset", offset), ("limit", limit)])
             .send()
             .await?
@@ -106,6 +111,7 @@ impl NtsClient {
     }
 }
 
+/// Convert a collection/embed episode detail into a unified discovery item.
 fn episode_to_discovery(ep: NtsEpisodeDetail) -> DiscoveryItem {
     DiscoveryItem::NtsEpisode {
         name: ep.name.clone(),
@@ -124,6 +130,8 @@ fn episode_to_discovery(ep: NtsEpisodeDetail) -> DiscoveryItem {
     }
 }
 
+/// Convert a search result episode into a unified discovery item.
+/// Parses the article path to extract show/episode aliases for playback URLs.
 fn search_episode_to_discovery(ep: NtsSearchEpisode) -> DiscoveryItem {
     let (show_alias, episode_alias) = ep
         .article

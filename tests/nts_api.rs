@@ -1,7 +1,7 @@
 // NTS API deserialization, DiscoveryItem methods, mpv player, and sub-tab routing.
 
 use clisten::action::Action;
-use clisten::api::models::*;
+use clisten::api::models::{DiscoveryItem, NtsCollectionResponse, NtsLiveResponse};
 use clisten::api::nts::NtsClient;
 use clisten::components::nts::{NtsSubTab, NtsTab};
 use clisten::player::MpvPlayer;
@@ -352,7 +352,7 @@ async fn test_mpv_player_play_spawns_process() {
 #[test]
 fn test_nts_tab_initial_state() {
     let tab = NtsTab::new();
-    assert_eq!(tab.active_sub, NtsSubTab::Live);
+    assert_eq!(tab.active_sub(), NtsSubTab::Live);
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn test_nts_tab_lazy_loading() {
         "first visit to Live should return LoadNtsLive, got: {:?}",
         actions
     );
-    assert_eq!(tab.active_sub, NtsSubTab::Live);
+    assert_eq!(tab.active_sub(), NtsSubTab::Live);
 
     let actions2 = tab.switch_sub_tab(0);
     assert!(
@@ -381,7 +381,7 @@ fn test_nts_tab_switch_to_picks() {
     let mut tab = NtsTab::new();
 
     let actions = tab.switch_sub_tab(1);
-    assert_eq!(tab.active_sub, NtsSubTab::Picks);
+    assert_eq!(tab.active_sub(), NtsSubTab::Picks);
     let has_load_picks = actions.iter().any(|a| matches!(a, Action::LoadNtsPicks));
     assert!(
         has_load_picks,
@@ -395,7 +395,7 @@ fn test_nts_tab_switch_to_search() {
     let mut tab = NtsTab::new();
 
     let actions = tab.switch_sub_tab(2);
-    assert_eq!(tab.active_sub, NtsSubTab::Search);
+    assert_eq!(tab.active_sub(), NtsSubTab::Search);
     let has_load_genres = actions.iter().any(|a| matches!(a, Action::LoadGenres));
     assert!(
         has_load_genres,

@@ -7,15 +7,30 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<()> {
-        use KeyCode::*;
+        use KeyCode::{BackTab, Char, Esc, Left, Right, Tab};
+
+        // Onboarding consumes all keys
+        if self.onboarding.is_active() {
+            self.onboarding.handle_key_event(key)?;
+            return Ok(());
+        }
 
         // Overlays consume all keys
         if self.show_help {
-            self.action_tx.send(Action::HideHelp)?;
+            if key.code == KeyCode::Enter {
+                self.action_tx.send(Action::HideHelp)?;
+                self.action_tx.send(Action::ShowOnboarding)?;
+            } else {
+                self.action_tx.send(Action::HideHelp)?;
+            }
             return Ok(());
         }
         if self.direct_play_modal.is_visible() {
             self.direct_play_modal.handle_key_event(key)?;
+            return Ok(());
+        }
+        if self.seek_modal.is_visible() {
+            self.seek_modal.handle_key_event(key)?;
             return Ok(());
         }
 
@@ -48,6 +63,25 @@ impl App {
             Char('q') => self.action_tx.send(Action::Quit)?,
             Char('?') => self.action_tx.send(Action::ShowHelp)?,
             Char('o') => self.action_tx.send(Action::OpenDirectPlay)?,
+            Char('v') => self.action_tx.send(Action::CycleVisualizer)?,
+            Char('i') => self.action_tx.send(Action::ToggleSkipIntro)?,
+            Char('t') => {
+                if self.seek.is_seekable {
+                    self.action_tx.send(Action::OpenSeekModal)?;
+                }
+            }
+            Left => {
+                if self.seek.is_seekable {
+                    let step = self.seek.step();
+                    self.action_tx.send(Action::SeekRelative(-step))?;
+                }
+            }
+            Right => {
+                if self.seek.is_seekable {
+                    let step = self.seek.step();
+                    self.action_tx.send(Action::SeekRelative(step))?;
+                }
+            }
             Char(' ') => self.action_tx.send(Action::TogglePlayPause)?,
             Char('n') => self.action_tx.send(Action::NextTrack)?,
             Char('p') => self.action_tx.send(Action::PrevTrack)?,

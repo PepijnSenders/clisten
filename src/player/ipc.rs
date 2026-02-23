@@ -42,7 +42,7 @@ pub async fn send_command(socket_path: &Path, cmd: &str) -> anyhow::Result<Strin
 }
 
 /// Poll the child process and send PlaybackFinished when it exits.
-pub fn spawn_exit_monitor(child: MpvProcess, tx: Option<mpsc::UnboundedSender<Action>>) {
+pub fn spawn_exit_monitor(child: MpvProcess, tx: mpsc::UnboundedSender<Action>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -50,9 +50,7 @@ pub fn spawn_exit_monitor(child: MpvProcess, tx: Option<mpsc::UnboundedSender<Ac
             match guard.as_mut().and_then(|c| c.try_wait().ok()) {
                 Some(Some(_)) => {
                     *guard = None;
-                    if let Some(tx) = &tx {
-                        tx.send(Action::PlaybackFinished).ok();
-                    }
+                    tx.send(Action::PlaybackFinished).ok();
                     break;
                 }
                 Some(None) => {} // still running
@@ -63,7 +61,7 @@ pub fn spawn_exit_monitor(child: MpvProcess, tx: Option<mpsc::UnboundedSender<Ac
 }
 
 /// Poll playback-time once per second and forward it as PlaybackPosition.
-pub fn spawn_position_poller(socket_path: PathBuf, tx: Option<mpsc::UnboundedSender<Action>>) {
+pub fn spawn_position_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
         loop {
@@ -79,10 +77,29 @@ pub fn spawn_position_poller(socket_path: PathBuf, tx: Option<mpsc::UnboundedSen
 
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&response) {
                 if let Some(pos) = val.get("data").and_then(|d| d.as_f64()) {
-                    if let Some(tx) = &tx {
-                        tx.send(Action::PlaybackPosition(pos)).ok();
-                    }
+                    tx.send(Action::PlaybackPosition(pos)).ok();
                 }
+            }
+        }
+    });
+}
+
+/// Poll duration once per second and forward it as PlaybackDuration.
+/// For live streams mpv returns null → we send None.
+pub fn spawn_duration_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
+    tokio::spawn(async move {
+        wait_for_socket(&socket_path).await;
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let Ok(response) =
+                send_command(&socket_path, r#"{"command":["get_property","duration"]}"#).await
+            else {
+                break;
+            };
+
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&response) {
+                let duration = val.get("data").and_then(|d| d.as_f64());
+                tx.send(Action::PlaybackDuration(duration)).ok();
             }
         }
     });
@@ -101,7 +118,7 @@ fn is_junk_metadata(val: &str, url: &str) -> bool {
 /// Observe multiple metadata properties from mpv (media-title, icy-name, artist, album).
 pub fn spawn_metadata_observer(
     socket_path: PathBuf,
-    tx: Option<mpsc::UnboundedSender<Action>>,
+    tx: mpsc::UnboundedSender<Action>,
     url: String,
 ) {
     tokio::spawn(async move {
@@ -160,16 +177,14 @@ pub fn spawn_metadata_observer(
             *field = clean;
 
             if changed && !meta.is_empty() {
-                if let Some(tx) = &tx {
-                    tx.send(Action::StreamMetadataChanged(meta.clone())).ok();
-                }
+                tx.send(Action::StreamMetadataChanged(meta.clone())).ok();
             }
         }
     });
 }
 
 /// Poll audio levels at ~20 Hz via the astats lavfi filter.
-pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: Option<mpsc::UnboundedSender<Action>>) {
+pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
         loop {
@@ -202,9 +217,7 @@ pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: Option<mpsc::Unbounded
             if let (Some(rms_db), Some(peak_db)) = (rms_db, peak_db) {
                 let rms = db_to_linear(rms_db);
                 let peak = db_to_linear(peak_db);
-                if let Some(tx) = &tx {
-                    tx.send(Action::AudioLevels { rms, peak }).ok();
-                }
+                tx.send(Action::AudioLevels { rms, peak }).ok();
             }
         }
     });

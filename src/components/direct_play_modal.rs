@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -12,8 +12,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::action::Action;
 use crate::api::models::DiscoveryItem;
-use crate::components::Component;
+use crate::components::{centered_overlay, Component};
+use crate::theme::Theme;
 
+/// Modal dialog for pasting and playing an arbitrary URL.
 #[derive(Default)]
 pub struct DirectPlayModal {
     action_tx: Option<UnboundedSender<Action>>,
@@ -97,16 +99,12 @@ impl Component for DirectPlayModal {
         Ok(true)
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         if !self.visible {
             return;
         }
 
-        let overlay_width = 60u16.min(area.width.saturating_sub(4));
-        let overlay_height = 6u16;
-        let x = area.width.saturating_sub(overlay_width) / 2;
-        let y = area.height.saturating_sub(overlay_height) / 2;
-        let overlay_area = Rect::new(x, y, overlay_width, overlay_height.min(area.height));
+        let overlay_area = centered_overlay(area, 60, 6);
 
         frame.render_widget(Clear, overlay_area);
 
@@ -115,7 +113,7 @@ impl Component for DirectPlayModal {
             .title(" Open URL ")
             .title_style(
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.primary)
                     .add_modifier(Modifier::BOLD),
             );
 
@@ -123,18 +121,18 @@ impl Component for DirectPlayModal {
         frame.render_widget(block, overlay_area);
 
         let prompt = Line::from(vec![
-            Span::styled("URL: ", Style::default().fg(Color::Yellow)),
+            Span::styled("URL: ", Style::default().fg(theme.accent)),
             Span::raw(&self.input),
-            Span::styled("█", Style::default().fg(Color::White)),
+            Span::styled("█", Style::default().fg(theme.text)),
         ]);
         let hint = Line::from(Span::styled(
             "  Enter to play · Esc to cancel",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.text_dim),
         ));
         let error_line = if let Some(ref err) = self.error {
             Line::from(Span::styled(
                 format!("  {}", err),
-                Style::default().fg(Color::Red),
+                Style::default().fg(theme.error),
             ))
         } else {
             Line::from("")
