@@ -4,6 +4,15 @@ use clisten::api::models::DiscoveryItem;
 use clisten::db::Database;
 use clisten::player::queue::QueueItem;
 
+/// Create an App backed by a temporary database so tests never pollute the
+/// production database.
+fn test_app() -> clisten::app::App {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::open_at(&dir.path().join("test.db")).unwrap();
+    std::mem::forget(dir);
+    clisten::app::App::with_db(clisten::config::Config::default(), db).unwrap()
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn make_episode(name: &str, alias: &str) -> DiscoveryItem {
@@ -257,7 +266,7 @@ async fn test_tab_cycles_sub_tabs() {
     use clisten::components::nts::NtsSubTab;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Live);
 
     // Tab → Picks
@@ -284,7 +293,7 @@ async fn test_backtab_cycles_sub_tabs_reverse() {
     use clisten::components::nts::NtsSubTab;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     assert_eq!(app.nts_tab.active_sub(), NtsSubTab::Live);
 
     // BackTab → wraps to Search

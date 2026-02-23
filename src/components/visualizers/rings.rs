@@ -88,16 +88,14 @@ impl Visualizer for RingsVisualizer {
         audio_rms: f64,
         audio_peak: f64,
     ) {
-        let target_intensity = if !playing {
+        let target_intensity = if !playing || paused {
             0.0
         } else if buffering {
             0.3
-        } else if paused {
-            0.5
         } else {
             1.0
         };
-        self.intensity += (target_intensity - self.intensity) * 0.05;
+        self.intensity += (target_intensity - self.intensity) * 0.15;
 
         let smoothed = self.prev_rms * 0.3 + audio_rms * 0.7;
         self.prev_rms = smoothed;
@@ -124,13 +122,13 @@ impl Visualizer for RingsVisualizer {
 
         // Auto-spawn rings periodically
         self.spawn_timer += 0.03 + smoothed * 0.05;
-        if self.spawn_timer > 1.0 && playing {
+        if self.spawn_timer > 1.0 && playing && !paused {
             self.spawn_timer = 0.0;
             self.spawn_ring();
         }
 
         // Beat transient spawns extra ring
-        if transient > 0.4 && playing {
+        if transient > 0.4 && playing && !paused {
             self.spawn_ring();
         }
     }

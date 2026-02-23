@@ -44,12 +44,10 @@ impl Visualizer for BlobVisualizer {
     ) {
         let has_audio_levels = audio_rms > 0.0 || self.prev_rms > 0.0;
 
-        if playing {
+        if playing && !paused {
             if buffering {
                 self.phase += 0.04;
                 self.color_phase += 0.003;
-                self.beat = 0.0;
-            } else if paused {
                 self.beat = 0.0;
             } else if has_audio_levels {
                 let smoothed = self.prev_rms * 0.3 + audio_rms * 0.7;
@@ -75,23 +73,19 @@ impl Visualizer for BlobVisualizer {
                 self.color_phase += 0.003;
             }
         } else {
-            self.phase += 0.01;
-            self.color_phase += 0.003;
-            self.beat = 0.0;
-            self.prev_rms = 0.0;
+            self.beat *= 0.85;
+            self.prev_rms *= 0.85;
         }
         self.prev_position = position_secs;
 
-        let target = if !playing {
+        let target = if !playing || paused {
             0.0
         } else if buffering {
             0.3
-        } else if paused {
-            0.6
         } else {
             1.0
         };
-        self.intensity += (target - self.intensity) * 0.05;
+        self.intensity += (target - self.intensity) * 0.15;
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect) {

@@ -187,6 +187,7 @@ pub fn spawn_metadata_observer(
 pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
+        let mut consecutive_errors: u32 = 0;
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             let Ok(response) = send_command(
@@ -195,8 +196,13 @@ pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<
             )
             .await
             else {
-                break;
+                consecutive_errors += 1;
+                if consecutive_errors > 40 {
+                    break;
+                }
+                continue;
             };
+            consecutive_errors = 0;
 
             let Ok(val) = serde_json::from_str::<serde_json::Value>(&response) else {
                 continue;

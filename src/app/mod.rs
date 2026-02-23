@@ -101,8 +101,14 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> anyhow::Result<Self> {
-        let (action_tx, action_rx) = mpsc::unbounded_channel();
         let db = Database::open()?;
+        Self::with_db(config, db)
+    }
+
+    /// Create an App with a custom database (used by integration tests to avoid
+    /// polluting the production database).
+    pub fn with_db(config: Config, db: Database) -> anyhow::Result<Self> {
+        let (action_tx, action_rx) = mpsc::unbounded_channel();
         let queue = Self::restore_queue(&db);
         let theme = Theme::from_name(&config.general.theme);
 

@@ -23,6 +23,8 @@ impl App {
                     self.start_current_track().await?;
                 } else {
                     let _ = self.player.toggle_pause().await;
+                    self.now_playing.update(&Action::TogglePlayPause)?;
+                    self.play_controls.update(&Action::TogglePlayPause)?;
                 }
             }
             Action::Stop => {
