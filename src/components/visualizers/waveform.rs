@@ -32,16 +32,14 @@ impl Visualizer for WaveformVisualizer {
         audio_rms: f64,
         audio_peak: f64,
     ) {
-        let target_intensity = if !playing {
+        let target_intensity = if !playing || paused {
             0.0
         } else if buffering {
             0.3
-        } else if paused {
-            0.6
         } else {
             1.0
         };
-        self.intensity += (target_intensity - self.intensity) * 0.05;
+        self.intensity += (target_intensity - self.intensity) * 0.15;
 
         let smoothed = self.prev_rms * 0.3 + audio_rms * 0.7;
         self.prev_rms = smoothed;
@@ -57,8 +55,6 @@ impl Visualizer for WaveformVisualizer {
         // Scroll phase
         if playing && !paused {
             self.phase += 0.08 + smoothed * 0.12;
-        } else if playing {
-            self.phase += 0.01;
         }
         self.color_phase += 0.005;
     }

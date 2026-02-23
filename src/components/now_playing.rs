@@ -137,8 +137,10 @@ impl Component for NowPlaying {
                 self.visualizer_label_ticks = self.visualizer_label_ticks.saturating_sub(1);
             }
             Action::AudioLevels { rms, peak } => {
-                self.audio_rms = *rms;
-                self.audio_peak = *peak;
+                if !self.paused {
+                    self.audio_rms = *rms;
+                    self.audio_peak = *peak;
+                }
             }
             Action::PlayItem(item) => {
                 self.set_buffering(item.clone());
@@ -155,6 +157,10 @@ impl Component for NowPlaying {
             }
             Action::TogglePlayPause => {
                 self.paused = !self.paused;
+                if self.paused {
+                    self.audio_rms = 0.0;
+                    self.audio_peak = 0.0;
+                }
             }
             Action::Stop | Action::PlaybackFinished => {
                 self.reset();

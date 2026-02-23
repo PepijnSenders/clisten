@@ -67,16 +67,14 @@ impl Visualizer for StarfieldVisualizer {
         audio_rms: f64,
         audio_peak: f64,
     ) {
-        let target_intensity = if !playing {
+        let target_intensity = if !playing || paused {
             0.0
         } else if buffering {
             0.3
-        } else if paused {
-            0.4
         } else {
             1.0
         };
-        self.intensity += (target_intensity - self.intensity) * 0.05;
+        self.intensity += (target_intensity - self.intensity) * 0.15;
 
         let smoothed = self.prev_rms * 0.3 + audio_rms * 0.7;
         self.prev_rms = smoothed;
@@ -90,8 +88,6 @@ impl Visualizer for StarfieldVisualizer {
         // Speed scales with RMS
         let target_speed = if playing && !paused {
             0.5 + smoothed * 3.0 + transient * 2.0
-        } else if playing {
-            0.2
         } else {
             0.1
         };
@@ -112,7 +108,7 @@ impl Visualizer for StarfieldVisualizer {
         }
 
         // Beat transient: spawn burst (reset some particles to center)
-        if transient > 0.5 {
+        if transient > 0.5 && !paused {
             let burst_count = (transient * 20.0) as usize;
             for i in 0..burst_count.min(self.particles.len()) {
                 let idx = ((i as f64 * 7.31 + self.phase * 13.37).sin() * 43758.5)

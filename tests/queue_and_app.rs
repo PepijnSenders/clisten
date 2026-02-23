@@ -2,9 +2,20 @@
 
 use clisten::action::Action;
 use clisten::api::models::DiscoveryItem;
+use clisten::db::Database;
 use clisten::player::queue::{Queue, QueueItem};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Create an App backed by a temporary database so tests never pollute the
+/// production database.
+fn test_app() -> clisten::app::App {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::open_at(&dir.path().join("test.db")).unwrap();
+    // Leak the tempdir so it lives until the process exits (tests are short-lived).
+    std::mem::forget(dir);
+    clisten::app::App::with_db(clisten::config::Config::default(), db).unwrap()
+}
 
 fn make_queue_item(title: &str, url: &str) -> QueueItem {
     QueueItem {
@@ -202,7 +213,7 @@ fn test_help_action_variants_exist() {
 
 #[tokio::test]
 async fn test_show_error_sets_message() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.handle_action(Action::ShowError("test error".to_string()))
         .await
         .unwrap();
@@ -211,7 +222,7 @@ async fn test_show_error_sets_message() {
 
 #[tokio::test]
 async fn test_clear_error_clears_message() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.handle_action(Action::ShowError("err".to_string()))
         .await
         .unwrap();
@@ -221,14 +232,14 @@ async fn test_clear_error_clears_message() {
 
 #[tokio::test]
 async fn test_help_toggle_on() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.handle_action(Action::ShowHelp).await.unwrap();
     assert!(app.show_help);
 }
 
 #[tokio::test]
 async fn test_help_toggle_off() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.handle_action(Action::ShowHelp).await.unwrap();
     app.handle_action(Action::HideHelp).await.unwrap();
     assert!(!app.show_help);
@@ -236,7 +247,7 @@ async fn test_help_toggle_off() {
 
 #[tokio::test]
 async fn test_add_to_queue() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
@@ -247,7 +258,7 @@ async fn test_add_to_queue() {
 
 #[tokio::test]
 async fn test_add_to_queue_next() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
@@ -265,7 +276,7 @@ async fn test_add_to_queue_next() {
 #[tokio::test]
 async fn test_key_a_adds_to_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.queue.clear();
     // Set a selected item in discovery_list
     app.discovery_list.set_items(vec![make_item("track1")]);
@@ -280,7 +291,7 @@ async fn test_key_a_adds_to_queue() {
 #[tokio::test]
 async fn test_key_c_clears_queue() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
         .unwrap();
@@ -293,7 +304,7 @@ async fn test_key_c_clears_queue() {
 
 #[tokio::test]
 async fn test_playback_finished_advances_queue() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.queue.clear();
     app.handle_action(Action::AddToQueue(make_item("track1")))
         .await
@@ -309,7 +320,7 @@ async fn test_playback_finished_advances_queue() {
 
 #[tokio::test]
 async fn test_playback_finished_empty_queue() {
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.queue.clear();
     // No queue — PlaybackFinished should not panic
     app.handle_action(Action::PlaybackFinished).await.unwrap();
@@ -319,7 +330,7 @@ async fn test_playback_finished_empty_queue() {
 #[tokio::test]
 async fn test_question_mark_toggles_help() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     assert!(!app.show_help);
 
     let key = KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE);
@@ -337,7 +348,7 @@ async fn test_question_mark_toggles_help() {
 #[tokio::test]
 async fn test_retry_key_resends_load() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.error_message = Some("some error".to_string());
 
     let key = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
@@ -349,7 +360,7 @@ async fn test_retry_key_resends_load() {
 #[tokio::test]
 async fn test_retry_key_ignored_without_error() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     assert!(app.error_message.is_none());
 
     // 'r' without error — should not panic or crash
@@ -364,7 +375,7 @@ async fn test_retry_key_ignored_without_error() {
 #[tokio::test]
 async fn test_error_displayed_in_status() {
     // When error_message is Some, the app should hold it for rendering
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     assert!(app.error_message.is_none());
     app.handle_action(Action::ShowError("network timeout".to_string()))
         .await
@@ -377,7 +388,7 @@ async fn test_error_displayed_in_status() {
 #[tokio::test]
 async fn test_any_key_dismisses_help() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.show_help = true;
 
     // Press 'j' — should dismiss help, not scroll
@@ -390,7 +401,7 @@ async fn test_any_key_dismisses_help() {
 #[tokio::test]
 async fn test_help_overlay_dismisses_on_escape() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = clisten::app::App::new(clisten::config::Config::default()).unwrap();
+    let mut app = test_app();
     app.show_help = true;
 
     let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
