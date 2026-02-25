@@ -110,6 +110,37 @@ impl Queue {
         }
     }
 
+    /// Update live channel items in the queue with fresh show names and genres.
+    /// Matches by channel number (the stable identifier). Returns `true` if
+    /// anything was actually changed.
+    pub fn update_live_channels(&mut self, live: &[DiscoveryItem]) -> bool {
+        let mut changed = false;
+        for qi in &mut self.items {
+            if let DiscoveryItem::NtsLiveChannel {
+                channel,
+                show_name,
+                genres,
+            } = &mut qi.item
+            {
+                for fresh in live {
+                    if let DiscoveryItem::NtsLiveChannel {
+                        channel: ch,
+                        show_name: new_name,
+                        genres: new_genres,
+                    } = fresh
+                    {
+                        if ch == channel && (show_name != new_name || genres != new_genres) {
+                            *show_name = new_name.clone();
+                            *genres = new_genres.clone();
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        changed
+    }
+
     /// Update the stream metadata of the current item (e.g. from ICY metadata).
     pub fn set_current_stream_metadata(&mut self, metadata: StreamMetadata) {
         if let Some(i) = self.current_index {
