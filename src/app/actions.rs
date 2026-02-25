@@ -1,6 +1,7 @@
 // Action dispatch: routes each Action variant to the right handler.
 
 use crate::action::Action;
+use crate::api::models::DiscoveryItem;
 use crate::app::App;
 use crate::components::nts::NtsSubTab;
 use crate::components::Component;
@@ -100,10 +101,17 @@ impl App {
 
             // Seek
             Action::PlaybackDuration(dur) => {
+                // Live streams report a small HLS buffer as "duration" — ignore it.
+                let is_live = self
+                    .queue
+                    .current()
+                    .is_some_and(|q| matches!(q.item, DiscoveryItem::NtsLiveChannel { .. }));
+                let dur = if is_live { None } else { dur };
+                let filtered = Action::PlaybackDuration(dur);
                 self.seek.duration_secs = dur;
                 self.seek.is_seekable = dur.is_some();
-                self.now_playing.update(&action)?;
-                self.play_controls.update(&action)?;
+                self.now_playing.update(&filtered)?;
+                self.play_controls.update(&filtered)?;
                 if self.seek_modal.is_visible() {
                     if let Some(d) = dur {
                         self.seek_modal.update_duration(d);
