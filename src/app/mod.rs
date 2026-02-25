@@ -97,6 +97,8 @@ pub struct App {
     pub(crate) viewing_query_results: bool,
     pub(crate) theme: Theme,
     pub(crate) seek: SeekState,
+    /// Tick counter for periodic live metadata refresh.
+    pub(crate) live_refresh_ticks: u32,
 }
 
 impl App {
@@ -171,6 +173,7 @@ impl App {
             viewing_query_results: false,
             theme,
             seek: SeekState::default(),
+            live_refresh_ticks: 0,
         })
     }
 

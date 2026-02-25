@@ -53,7 +53,17 @@ impl App {
 
             // Data loading
             Action::LoadNtsLive => self.spawn_fetch_live(),
-            Action::NtsLiveLoaded(items) => self.discovery_list.set_items(items),
+            Action::NtsLiveLoaded(items) => {
+                self.live_refresh_ticks = 0;
+                if self.queue.update_live_channels(&items) {
+                    self.sync_queue_to_now_playing();
+                    self.sync_play_controls();
+                    self.persist_queue();
+                }
+                if self.nts_tab.active_sub() == NtsSubTab::Live {
+                    self.discovery_list.set_items(items);
+                }
+            }
             Action::LoadNtsPicks => self.spawn_fetch_picks(),
             Action::NtsPicksLoaded(items) => self.discovery_list.set_items(items),
             Action::LoadGenres => self.load_genres()?,
@@ -244,6 +254,21 @@ impl App {
                     self.discovery_list.set_filter(None);
                 }
                 self.search_bar.update(&Action::Back)?;
+            }
+
+            // Periodic refresh of live channel metadata (~2 minutes)
+            Action::Tick => {
+                self.live_refresh_ticks += 1;
+                let interval = (self.config.general.frame_rate * 120.0) as u32;
+                if interval > 0 && self.live_refresh_ticks >= interval {
+                    self.live_refresh_ticks = 0;
+                    self.spawn_fetch_live();
+                }
+                self.nts_tab.update(&Action::Tick)?;
+                self.discovery_list.update(&Action::Tick)?;
+                self.search_bar.update(&Action::Tick)?;
+                self.now_playing.update(&Action::Tick)?;
+                self.play_controls.update(&Action::Tick)?;
             }
 
             // Forward anything unhandled to components

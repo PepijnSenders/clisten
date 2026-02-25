@@ -180,6 +180,85 @@ fn test_queue_prev_at_start() {
     assert_eq!(q.current_index(), Some(0));
 }
 
+fn make_live_queue_item(channel: u8, show_name: &str, genres: Vec<&str>) -> QueueItem {
+    let item = DiscoveryItem::NtsLiveChannel {
+        channel,
+        show_name: show_name.to_string(),
+        genres: genres.into_iter().map(String::from).collect(),
+    };
+    let url = item.playback_url().unwrap_or_default();
+    QueueItem {
+        item,
+        url,
+        stream_metadata: None,
+    }
+}
+
+fn make_live_item(channel: u8, show_name: &str, genres: Vec<&str>) -> DiscoveryItem {
+    DiscoveryItem::NtsLiveChannel {
+        channel,
+        show_name: show_name.to_string(),
+        genres: genres.into_iter().map(String::from).collect(),
+    }
+}
+
+// ── update_live_channels ─────────────────────────────────────────────────────
+
+#[test]
+fn test_update_live_channels_updates_stale_metadata() {
+    let mut q = Queue::new();
+    q.add(make_live_queue_item(1, "Old Show", vec!["Jazz"]));
+    q.add(make_live_queue_item(2, "Old Show 2", vec!["Ambient"]));
+
+    let fresh = vec![
+        make_live_item(1, "New Show", vec!["Techno", "House"]),
+        make_live_item(2, "New Show 2", vec!["Drum & Bass"]),
+    ];
+    let changed = q.update_live_channels(&fresh);
+
+    assert!(changed);
+    if let DiscoveryItem::NtsLiveChannel {
+        show_name, genres, ..
+    } = &q.items()[0].item
+    {
+        assert_eq!(show_name, "New Show");
+        assert_eq!(genres, &["Techno", "House"]);
+    } else {
+        panic!("expected NtsLiveChannel");
+    }
+    if let DiscoveryItem::NtsLiveChannel {
+        show_name, genres, ..
+    } = &q.items()[1].item
+    {
+        assert_eq!(show_name, "New Show 2");
+        assert_eq!(genres, &["Drum & Bass"]);
+    } else {
+        panic!("expected NtsLiveChannel");
+    }
+}
+
+#[test]
+fn test_update_live_channels_returns_false_when_unchanged() {
+    let mut q = Queue::new();
+    q.add(make_live_queue_item(1, "Same Show", vec!["Jazz"]));
+
+    let fresh = vec![make_live_item(1, "Same Show", vec!["Jazz"])];
+    let changed = q.update_live_channels(&fresh);
+    assert!(!changed);
+}
+
+#[test]
+fn test_update_live_channels_ignores_non_live_items() {
+    let mut q = Queue::new();
+    q.add(make_queue_item("Episode", "http://ep"));
+
+    let fresh = vec![make_live_item(1, "New Show", vec!["Techno"])];
+    let changed = q.update_live_channels(&fresh);
+    assert!(!changed);
+    // Episode item should be untouched
+    assert_eq!(q.items()[0].item.title(), "Episode");
+}
+
 // ── Queue action variants ────────────────────────────────────────────────────
 
 #[test]
@@ -368,6 +447,38 @@ async fn test_retry_key_ignored_without_error() {
     app.handle_key(key).unwrap();
     // still no error
     assert!(app.error_message.is_none());
+}
+
+// ── NtsLiveLoaded refreshes queue ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_nts_live_loaded_updates_queue_items() {
+    let mut app = test_app();
+    app.queue.clear();
+
+    // Add a live channel to the queue with stale metadata
+    app.queue
+        .add(make_live_queue_item(1, "Old Show", vec!["Jazz"]));
+
+    // Simulate NtsLiveLoaded with fresh data
+    let fresh = vec![
+        make_live_item(1, "Fresh Show", vec!["Techno", "House"]),
+        make_live_item(2, "Channel 2 Show", vec!["Ambient"]),
+    ];
+    app.handle_action(Action::NtsLiveLoaded(fresh))
+        .await
+        .unwrap();
+
+    // Queue should be updated with fresh metadata
+    if let DiscoveryItem::NtsLiveChannel {
+        show_name, genres, ..
+    } = &app.queue.items()[0].item
+    {
+        assert_eq!(show_name, "Fresh Show");
+        assert_eq!(genres, &["Techno", "House"]);
+    } else {
+        panic!("expected NtsLiveChannel");
+    }
 }
 
 // ── Error display ────────────────────────────────────────────────────────────
