@@ -5,6 +5,8 @@
 // Ring thickness thins as radius grows.
 // Beat transients spawn new rings; expansion speed scales with RMS.
 
+use std::cell::{Cell, RefCell};
+
 use ratatui::{layout::Rect, style::Color, Frame};
 
 use super::{blend_colors, Visualizer};
@@ -35,6 +37,9 @@ pub struct RingsVisualizer {
     prev_rms: f64,
     spawn_timer: f64,
     ring_counter: usize,
+    #[allow(clippy::type_complexity)]
+    grid: RefCell<Vec<Vec<(u8, Option<Color>)>>>,
+    grid_size: Cell<(usize, usize)>,
 }
 
 impl Default for RingsVisualizer {
@@ -47,6 +52,8 @@ impl Default for RingsVisualizer {
             prev_rms: 0.0,
             spawn_timer: 0.0,
             ring_counter: 0,
+            grid: RefCell::new(Vec::new()),
+            grid_size: Cell::new((0, 0)),
         }
     }
 }
@@ -146,7 +153,18 @@ impl Visualizer for RingsVisualizer {
         let cy = dot_rows as f64 / 2.0;
         let max_r = cx.min(cy);
 
-        let mut grid: Vec<Vec<(u8, Option<Color>)>> = vec![vec![(0u8, None); cols]; rows];
+        let mut grid = self.grid.borrow_mut();
+        if self.grid_size.get() != (cols, rows) {
+            grid.clear();
+            grid.resize_with(rows, || vec![(0u8, None); cols]);
+            self.grid_size.set((cols, rows));
+        } else {
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = (0u8, None);
+                }
+            }
+        }
 
         let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
         let dot_offsets: [(usize, usize); 8] = [

@@ -48,11 +48,11 @@ impl StreamMetadata {
 }
 
 /// Wraps an mpv child process, communicating over a Unix IPC socket.
-#[derive(Clone)]
 pub struct MpvPlayer {
     socket_path: PathBuf,
     action_tx: Option<mpsc::UnboundedSender<Action>>,
     child: MpvProcess,
+    poller_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl Default for MpvPlayer {
@@ -62,6 +62,7 @@ impl Default for MpvPlayer {
             socket_path: std::env::temp_dir().join(format!("clisten-mpv-{}.sock", pid)),
             action_tx: None,
             child: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            poller_handles: Vec::new(),
         }
     }
 }
@@ -105,11 +106,13 @@ impl MpvPlayer {
 
         *self.child.lock().await = Some(child);
 
-        ipc::spawn_exit_monitor(self.child.clone(), tx.clone());
-        ipc::spawn_position_poller(self.socket_path.clone(), tx.clone());
-        ipc::spawn_duration_poller(self.socket_path.clone(), tx.clone());
-        ipc::spawn_metadata_observer(self.socket_path.clone(), tx.clone(), url.to_string());
-        ipc::spawn_audio_level_poller(self.socket_path.clone(), tx);
+        self.poller_handles = vec![
+            ipc::spawn_exit_monitor(self.child.clone(), tx.clone()),
+            ipc::spawn_position_poller(self.socket_path.clone(), tx.clone()),
+            ipc::spawn_duration_poller(self.socket_path.clone(), tx.clone()),
+            ipc::spawn_metadata_observer(self.socket_path.clone(), tx.clone(), url.to_string()),
+            ipc::spawn_audio_level_poller(self.socket_path.clone(), tx),
+        ];
 
         Ok(())
     }
@@ -131,7 +134,12 @@ impl MpvPlayer {
     }
 
     /// Quit mpv and clean up the IPC socket.
-    pub async fn stop(&self) -> anyhow::Result<()> {
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        // Abort all background pollers before killing mpv, so they don't
+        // reconnect to a new instance on the same socket path.
+        for handle in self.poller_handles.drain(..) {
+            handle.abort();
+        }
         // Best-effort shutdown: mpv may have already exited or the socket may
         // not exist. Errors are harmless — we just need to ensure cleanup.
         let _ = ipc::send_command(&self.socket_path, r#"{"command":["quit"]}"#).await;
@@ -172,6 +180,10 @@ impl MpvPlayer {
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
+        // Abort all background pollers.
+        for handle in self.poller_handles.drain(..) {
+            handle.abort();
+        }
         // Best-effort cleanup on drop — try_lock because we can't await.
         if let Ok(mut guard) = self.child.try_lock() {
             if let Some(ref mut child) = *guard {

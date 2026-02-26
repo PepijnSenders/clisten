@@ -5,6 +5,8 @@
 // Particles brighten as they move outward (depth effect).
 // Deterministic pseudo-random (no `rand` crate).
 
+use std::cell::{Cell, RefCell};
+
 use ratatui::{layout::Rect, style::Color, Frame};
 
 use super::blend_colors;
@@ -27,6 +29,8 @@ pub struct StarfieldVisualizer {
     intensity: f32,
     speed_mult: f64,
     prev_rms: f64,
+    grid: RefCell<Vec<Vec<(u8, f64)>>>,
+    grid_size: Cell<(usize, usize)>,
 }
 
 impl Default for StarfieldVisualizer {
@@ -48,6 +52,8 @@ impl Default for StarfieldVisualizer {
             intensity: 0.0,
             speed_mult: 1.0,
             prev_rms: 0.0,
+            grid: RefCell::new(Vec::new()),
+            grid_size: Cell::new((0, 0)),
         }
     }
 }
@@ -137,8 +143,19 @@ impl Visualizer for StarfieldVisualizer {
         let cy = dot_rows as f64 / 2.0;
         let max_r = cx.min(cy);
 
-        // Build a grid of braille dot bits per cell
-        let mut grid: Vec<Vec<(u8, f64)>> = vec![vec![(0u8, 0.0); cols]; rows];
+        // Reuse cached grid, reallocate only on size change
+        let mut grid = self.grid.borrow_mut();
+        if self.grid_size.get() != (cols, rows) {
+            grid.clear();
+            grid.resize_with(rows, || vec![(0u8, 0.0); cols]);
+            self.grid_size.set((cols, rows));
+        } else {
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = (0u8, 0.0);
+                }
+            }
+        }
 
         let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
         let dot_offsets: [(usize, usize); 8] = [

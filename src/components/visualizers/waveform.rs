@@ -5,6 +5,8 @@
 // Faint "echo" trail wave in dimmer color.
 // Horizontal color gradient cycling through palettes.
 
+use std::cell::RefCell;
+
 use ratatui::{layout::Rect, style::Color, Frame};
 
 use super::{blend_colors, Visualizer};
@@ -12,7 +14,6 @@ use super::{blend_colors, Visualizer};
 const TRAIL_COLORS: &[Color] = &[Color::Cyan, Color::Blue, Color::Magenta];
 const MAIN_COLORS: &[Color] = &[Color::LightCyan, Color::LightMagenta, Color::LightGreen];
 
-#[derive(Default)]
 pub struct WaveformVisualizer {
     phase: f64,
     color_phase: f64,
@@ -20,6 +21,23 @@ pub struct WaveformVisualizer {
     amplitude: f64,
     frequency: f64,
     prev_rms: f64,
+    cached_main_wave: RefCell<Vec<f64>>,
+    cached_trail_wave: RefCell<Vec<f64>>,
+}
+
+impl Default for WaveformVisualizer {
+    fn default() -> Self {
+        Self {
+            phase: 0.0,
+            color_phase: 0.0,
+            intensity: 0.0,
+            amplitude: 0.0,
+            frequency: 0.0,
+            prev_rms: 0.0,
+            cached_main_wave: RefCell::new(Vec::new()),
+            cached_trail_wave: RefCell::new(Vec::new()),
+        }
+    }
 }
 
 impl Visualizer for WaveformVisualizer {
@@ -83,26 +101,25 @@ impl Visualizer for WaveformVisualizer {
             (1, 3),
         ];
 
-        // Precompute wave values for each dot column
+        // Precompute wave values for each dot column, reusing cached buffers
         let dot_cols = cols * 2;
         let amp = self.amplitude * self.intensity as f64 * center_y * 0.8;
 
-        // Two waves: main and trail (echo)
-        let main_wave: Vec<f64> = (0..dot_cols)
-            .map(|x| {
-                let t = x as f64 / dot_cols as f64;
-                let angle = t * std::f64::consts::TAU * self.frequency + self.phase;
-                center_y + amp * angle.sin()
-            })
-            .collect();
+        let mut main_wave = self.cached_main_wave.borrow_mut();
+        main_wave.resize(dot_cols, 0.0);
+        for x in 0..dot_cols {
+            let t = x as f64 / dot_cols as f64;
+            let angle = t * std::f64::consts::TAU * self.frequency + self.phase;
+            main_wave[x] = center_y + amp * angle.sin();
+        }
 
-        let trail_wave: Vec<f64> = (0..dot_cols)
-            .map(|x| {
-                let t = x as f64 / dot_cols as f64;
-                let angle = t * std::f64::consts::TAU * self.frequency + self.phase - 0.4;
-                center_y + amp * 0.7 * angle.sin()
-            })
-            .collect();
+        let mut trail_wave = self.cached_trail_wave.borrow_mut();
+        trail_wave.resize(dot_cols, 0.0);
+        for x in 0..dot_cols {
+            let t = x as f64 / dot_cols as f64;
+            let angle = t * std::f64::consts::TAU * self.frequency + self.phase - 0.4;
+            trail_wave[x] = center_y + amp * 0.7 * angle.sin();
+        }
 
         // Color gradient along horizontal axis
         let main_palette_idx = (self.color_phase as usize) % MAIN_COLORS.len();

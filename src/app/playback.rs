@@ -8,10 +8,29 @@ use crate::player::queue::{Queue, QueueItem};
 
 impl App {
     /// Start playing an item: enqueue it, and if nothing is playing, start playback.
+    /// For live channels, reuse the existing queue entry instead of adding a duplicate.
     pub(super) async fn play_item(&mut self, item: DiscoveryItem) -> anyhow::Result<()> {
         let Some(url) = item.playback_url() else {
             return Ok(());
         };
+
+        // Deduplicate live channels: if the same channel is already queued, jump to it.
+        if let DiscoveryItem::NtsLiveChannel { channel, .. } = &item {
+            if let Some(existing_idx) = self.queue.find_live_channel(*channel) {
+                self.queue.update_live_channel_at(existing_idx, &item);
+                self.queue.play_at(existing_idx);
+                self.sync_play_controls();
+                self.now_playing.update(&Action::PlayItem(item.clone()))?;
+                self.player.play(&url).await?;
+                self.action_tx.send(Action::PlaybackStarted {
+                    title: item.display_title(),
+                })?;
+                self.sync_queue_to_now_playing();
+                self.persist_queue();
+                return Ok(());
+            }
+        }
+
         let nothing_playing = !self.now_playing.is_playing();
         let new_index = self.queue.len();
 
@@ -101,6 +120,13 @@ impl App {
     }
 
     pub(super) fn enqueue(&mut self, item: DiscoveryItem, insert_next: bool) {
+        // Skip if this live channel is already in the queue.
+        if let DiscoveryItem::NtsLiveChannel { channel, .. } = &item {
+            if self.queue.find_live_channel(*channel).is_some() {
+                return;
+            }
+        }
+
         let url = item.playback_url().unwrap_or_default();
         let qi = QueueItem {
             item,
