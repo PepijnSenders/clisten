@@ -45,12 +45,18 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
     }
 
     let error_height = if state.error_message.is_some() { 1 } else { 0 };
-    let outer = Layout::vertical([
-        Constraint::Min(0),
-        Constraint::Length(error_height),
-        Constraint::Length(4),
-    ])
-    .split(frame.area());
+    let compact = frame.area().height < 16;
+    let outer = if compact {
+        Layout::vertical([Constraint::Min(0), Constraint::Length(error_height)])
+            .split(frame.area())
+    } else {
+        Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(error_height),
+            Constraint::Length(4),
+        ])
+        .split(frame.area())
+    };
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
@@ -91,7 +97,9 @@ pub fn draw(frame: &mut Frame, state: &DrawState) {
         frame.render_widget(Paragraph::new(error_line), outer[1]);
     }
 
-    state.play_controls.draw(frame, outer[2], theme);
+    if !compact {
+        state.play_controls.draw(frame, outer[2], theme);
+    }
 
     if state.direct_play_modal.is_visible() {
         state.direct_play_modal.draw(frame, frame.area(), theme);
