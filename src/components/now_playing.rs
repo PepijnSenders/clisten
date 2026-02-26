@@ -316,12 +316,14 @@ impl NowPlaying {
             lines.push(Line::from(""));
         }
 
+        let is_live = matches!(item, DiscoveryItem::NtsLiveChannel { .. });
+
         if self.buffering {
             lines.push(Line::from(Span::styled(
                 status,
                 Style::default().fg(theme.buffering),
             )));
-        } else if let Some(dur) = self.duration_secs {
+        } else if let Some(dur) = self.duration_secs.filter(|_| !is_live) {
             lines.push(Line::from(format!(
                 "{} {} / {}",
                 status,
