@@ -110,6 +110,33 @@ impl Queue {
         }
     }
 
+    /// Find the index of an existing `NtsLiveChannel` by channel number.
+    pub fn find_live_channel(&self, target_channel: u8) -> Option<usize> {
+        self.items.iter().position(|qi| {
+            matches!(&qi.item, DiscoveryItem::NtsLiveChannel { channel, .. } if *channel == target_channel)
+        })
+    }
+
+    /// Update the metadata of a live channel entry at the given index.
+    pub fn update_live_channel_at(&mut self, index: usize, fresh: &DiscoveryItem) {
+        if let Some(qi) = self.items.get_mut(index) {
+            if let (
+                DiscoveryItem::NtsLiveChannel {
+                    show_name, genres, ..
+                },
+                DiscoveryItem::NtsLiveChannel {
+                    show_name: new_name,
+                    genres: new_genres,
+                    ..
+                },
+            ) = (&mut qi.item, fresh)
+            {
+                *show_name = new_name.clone();
+                *genres = new_genres.clone();
+            }
+        }
+    }
+
     /// Update live channel items in the queue with fresh show names and genres.
     /// Matches by channel number (the stable identifier). Returns `true` if
     /// anything was actually changed.

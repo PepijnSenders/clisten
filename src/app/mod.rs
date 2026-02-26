@@ -214,6 +214,11 @@ impl App {
                     self.handle_action(action).await?;
                 }
             }
+
+            // Drain any buffered actions so the consumer catches up each frame
+            while let Ok(action) = self.action_rx.try_recv() {
+                self.handle_action(action).await?;
+            }
         }
 
         tui.exit()?;

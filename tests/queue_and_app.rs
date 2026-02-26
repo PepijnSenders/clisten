@@ -202,6 +202,59 @@ fn make_live_item(channel: u8, show_name: &str, genres: Vec<&str>) -> DiscoveryI
     }
 }
 
+// ── find_live_channel / deduplication ─────────────────────────────────────────
+
+#[test]
+fn test_find_live_channel() {
+    let mut q = Queue::new();
+    q.add(make_queue_item("Episode", "http://ep"));
+    q.add(make_live_queue_item(1, "Show A", vec!["Jazz"]));
+    q.add(make_live_queue_item(2, "Show B", vec!["Ambient"]));
+
+    assert_eq!(q.find_live_channel(1), Some(1));
+    assert_eq!(q.find_live_channel(2), Some(2));
+    assert_eq!(q.find_live_channel(3), None);
+}
+
+#[test]
+fn test_play_live_channel_twice_no_duplicate() {
+    let mut q = Queue::new();
+    q.add(make_live_queue_item(1, "Show A", vec!["Jazz"]));
+
+    // Same channel, different show name — should find existing entry
+    assert!(q.find_live_channel(1).is_some());
+    assert_eq!(q.len(), 1);
+
+    // Update metadata and jump instead of adding
+    let fresh = DiscoveryItem::NtsLiveChannel {
+        channel: 1,
+        show_name: "Show B".to_string(),
+        genres: vec!["Techno".to_string()],
+    };
+    let idx = q.find_live_channel(1).unwrap();
+    q.update_live_channel_at(idx, &fresh);
+    q.play_at(idx);
+
+    assert_eq!(q.len(), 1); // Still only one entry
+    assert_eq!(q.current_index(), Some(0));
+    if let DiscoveryItem::NtsLiveChannel { show_name, .. } = &q.items()[0].item {
+        assert_eq!(show_name, "Show B");
+    } else {
+        panic!("expected NtsLiveChannel");
+    }
+}
+
+#[test]
+fn test_different_live_channels_remain_separate() {
+    let mut q = Queue::new();
+    q.add(make_live_queue_item(1, "Show A", vec!["Jazz"]));
+    q.add(make_live_queue_item(2, "Show B", vec!["Ambient"]));
+
+    assert_eq!(q.len(), 2);
+    assert_eq!(q.find_live_channel(1), Some(0));
+    assert_eq!(q.find_live_channel(2), Some(1));
+}
+
 // ── update_live_channels ─────────────────────────────────────────────────────
 
 #[test]
@@ -479,6 +532,37 @@ async fn test_nts_live_loaded_updates_queue_items() {
     } else {
         panic!("expected NtsLiveChannel");
     }
+}
+
+// ── Live channel queue deduplication ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_enqueue_live_channel_skips_duplicate() {
+    let mut app = test_app();
+    app.queue.clear();
+
+    let ch1_a = make_live_item(1, "Show A", vec!["Jazz"]);
+    let ch1_b = make_live_item(1, "Show B", vec!["Techno"]);
+
+    app.handle_action(Action::AddToQueue(ch1_a)).await.unwrap();
+    assert_eq!(app.queue.len(), 1);
+
+    // Adding the same channel again should be skipped
+    app.handle_action(Action::AddToQueue(ch1_b)).await.unwrap();
+    assert_eq!(app.queue.len(), 1);
+}
+
+#[tokio::test]
+async fn test_enqueue_different_live_channels_allowed() {
+    let mut app = test_app();
+    app.queue.clear();
+
+    let ch1 = make_live_item(1, "Show A", vec!["Jazz"]);
+    let ch2 = make_live_item(2, "Show B", vec!["Ambient"]);
+
+    app.handle_action(Action::AddToQueue(ch1)).await.unwrap();
+    app.handle_action(Action::AddToQueue(ch2)).await.unwrap();
+    assert_eq!(app.queue.len(), 2);
 }
 
 // ── Error display ────────────────────────────────────────────────────────────

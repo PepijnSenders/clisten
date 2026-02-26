@@ -42,7 +42,10 @@ pub async fn send_command(socket_path: &Path, cmd: &str) -> anyhow::Result<Strin
 }
 
 /// Poll the child process and send PlaybackFinished when it exits.
-pub fn spawn_exit_monitor(child: MpvProcess, tx: mpsc::UnboundedSender<Action>) {
+pub fn spawn_exit_monitor(
+    child: MpvProcess,
+    tx: mpsc::UnboundedSender<Action>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -57,11 +60,14 @@ pub fn spawn_exit_monitor(child: MpvProcess, tx: mpsc::UnboundedSender<Action>) 
                 None => break,   // no child or wait error
             }
         }
-    });
+    })
 }
 
 /// Poll playback-time once per second and forward it as PlaybackPosition.
-pub fn spawn_position_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
+pub fn spawn_position_poller(
+    socket_path: PathBuf,
+    tx: mpsc::UnboundedSender<Action>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
         loop {
@@ -81,12 +87,15 @@ pub fn spawn_position_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Act
                 }
             }
         }
-    });
+    })
 }
 
 /// Poll duration once per second and forward it as PlaybackDuration.
 /// For live streams mpv returns null → we send None.
-pub fn spawn_duration_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
+pub fn spawn_duration_poller(
+    socket_path: PathBuf,
+    tx: mpsc::UnboundedSender<Action>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
         loop {
@@ -102,7 +111,7 @@ pub fn spawn_duration_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Act
                 tx.send(Action::PlaybackDuration(duration)).ok();
             }
         }
-    });
+    })
 }
 
 /// Filter out junk metadata values (empty, "stream", raw URLs).
@@ -120,7 +129,7 @@ pub fn spawn_metadata_observer(
     socket_path: PathBuf,
     tx: mpsc::UnboundedSender<Action>,
     url: String,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
 
@@ -180,11 +189,14 @@ pub fn spawn_metadata_observer(
                 tx.send(Action::StreamMetadataChanged(meta.clone())).ok();
             }
         }
-    });
+    })
 }
 
 /// Poll audio levels at ~20 Hz via the astats lavfi filter.
-pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<Action>) {
+pub fn spawn_audio_level_poller(
+    socket_path: PathBuf,
+    tx: mpsc::UnboundedSender<Action>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         wait_for_socket(&socket_path).await;
         let mut consecutive_errors: u32 = 0;
@@ -226,7 +238,7 @@ pub fn spawn_audio_level_poller(socket_path: PathBuf, tx: mpsc::UnboundedSender<
                 tx.send(Action::AudioLevels { rms, peak }).ok();
             }
         }
-    });
+    })
 }
 
 /// Convert decibels to a 0.0–1.0 linear amplitude. Silence floor at -60 dB.
